@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Carolyn's Care Schedule</title>
+  <style>
+    :root {
+      --red-bg:#fee2e2; --red-fg:#dc2626;
+      --green-bg:#dcfce7; --green-fg:#15803d;
+      --yellow-bg:#fef9c3; --yellow-fg:#a16207;
+      --gray-bg:#f1f5f9; --gray-fg:#64748b;
+      --blue:#3b82f6; --blue-dark:#2563eb;
+      --teal:#10b981; --teal-dark:#059669;
+      --text:#1e293b; --muted:#64748b;
+      --border:#e2e8f0; --card:#ffffff;
+      --page:#f0f4f8;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--page);color:var(--text);min-height:100vh;}
+
+    /* ── Header ── */
+    .app-header{background:linear-gradient(135deg,#1e40af 0%,#1d4ed8 100%);color:white;padding:20px 16px 16px;text-align:center;}
+    .app-header h1{font-size:1.4rem;font-weight:700;margin-bottom:2px;}
+    .app-header p{font-size:0.85rem;opacity:.85;}
+
+    /* ── Layout ── */
+    .main{max-width:680px;margin:0 auto;padding:16px;}
+    .card{background:var(--card);border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.08);}
+    .section-label{font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;}
+
+    /* ── Period picker ── */
+    .period-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+    .period-field{display:flex;flex-direction:column;gap:3px;}
+    .field-label{font-size:.72rem;color:var(--muted);font-weight:600;}
+    .period-field input[type=date]{border:1.5px solid var(--border);border-radius:9px;padding:8px 12px;font-size:.9rem;outline:none;color:var(--text);}
+    .period-field input[type=date]:focus{border-color:var(--blue);}
+    .period-static{font-size:.9rem;font-weight:600;padding:8px 0;color:var(--text);}
+    .period-sep{font-size:1.2rem;color:var(--muted);margin-top:18px;}
+
+    /* ── Pattern editor ── */
+    details>summary{cursor:pointer;font-size:.875rem;font-weight:700;list-style:none;display:flex;align-items:center;justify-content:space-between;user-select:none;}
+    details>summary::-webkit-details-marker{display:none;}
+    .pattern-table{width:100%;border-collapse:collapse;margin-top:8px;}
+    .pattern-table th{font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:0 8px 6px;text-align:left;}
+    .pattern-table td{padding:5px 8px;vertical-align:middle;}
+    .pattern-table tr:not(:last-child) td{border-bottom:1px solid var(--gray-bg);}
+    .pattern-day-name{font-size:.85rem;font-weight:600;width:90px;}
+    .pattern-toggle{display:inline-flex;align-items:center;gap:5px;font-size:.8rem;cursor:pointer;white-space:nowrap;}
+    .pattern-toggle input{cursor:pointer;}
+    .pattern-select{border:1.5px solid var(--border);border-radius:7px;padding:4px 8px;font-size:.8rem;background:white;outline:none;cursor:pointer;min-width:110px;}
+    .pattern-select:focus{border-color:var(--blue);}
+
+    /* ── Caregivers ── */
+    .chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px;}
+    .chip{display:inline-flex;align-items:center;gap:5px;background:#dbeafe;color:#1d4ed8;border-radius:20px;padding:5px 12px;font-size:.82rem;font-weight:600;}
+    .chip-remove{background:none;border:none;cursor:pointer;color:#1d4ed8;font-size:1rem;line-height:1;opacity:.55;padding:0;}
+    .chip-remove:hover{opacity:1;}
+    .add-row{display:flex;gap:8px;}
+    .add-row input{flex:1;border:1.5px solid var(--border);border-radius:9px;padding:8px 12px;font-size:.875rem;outline:none;}
+    .add-row input:focus{border-color:var(--blue);}
+
+    /* ── Buttons ── */
+    .btn{background:var(--blue);color:white;border:none;border-radius:9px;padding:8px 16px;font-size:.875rem;font-weight:600;cursor:pointer;transition:background .15s;}
+    .btn:hover{background:var(--blue-dark);}
+    .btn-outline{background:white;color:var(--blue);border:1.5px solid var(--blue);}
+    .btn-outline:hover{background:#eff6ff;}
+    .btn-block{width:100%;margin-top:10px;}
+
+    /* ── Summary ── */
+    .summary-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+    .pill{border-radius:20px;padding:6px 14px;font-size:.78rem;font-weight:700;}
+    .pill-gray{background:var(--gray-bg);color:var(--gray-fg);}
+    .pill-green{background:var(--green-bg);color:var(--green-fg);}
+    .pill-red{background:var(--red-bg);color:var(--red-fg);}
+
+    /* ── Day cards ── */
+    .day-card{margin-bottom:12px;}
+    .day-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+    .day-name{font-size:1rem;font-weight:700;}
+    .day-note{font-size:.72rem;color:var(--muted);margin-top:1px;}
+    .badge{border-radius:20px;padding:3px 11px;font-size:.72rem;font-weight:700;white-space:nowrap;}
+    .badge-green{background:var(--green-bg);color:var(--green-fg);}
+    .badge-yellow{background:var(--yellow-bg);color:var(--yellow-fg);}
+    .badge-red{background:var(--red-bg);color:var(--red-fg);}
+
+    /* ── Shift rows ── */
+    .shift-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;margin-bottom:6px;transition:background .2s;}
+    .shift-needed{background:var(--red-bg);}
+    .shift-covered{background:var(--green-bg);}
+    .shift-closed{background:var(--gray-bg);}
+    .shift-icon{font-size:.9rem;width:20px;text-align:center;flex-shrink:0;}
+    .shift-time{font-size:.78rem;font-weight:600;width:115px;flex-shrink:0;}
+    .shift-label{font-size:.72rem;font-weight:500;color:var(--muted);width:72px;flex-shrink:0;}
+    .shift-assign{flex:1;}
+    .shift-assign select{width:100%;border:1.5px solid rgba(0,0,0,.1);border-radius:7px;padding:5px 8px;font-size:.82rem;background:white;outline:none;cursor:pointer;}
+    .shift-assign select:focus{border-color:var(--blue);}
+    .shift-closed-text{font-size:.75rem;color:var(--muted);font-style:italic;}
+
+    /* ── Text generator ── */
+    .text-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;}
+    .text-controls label{font-size:.82rem;color:var(--muted);display:flex;align-items:center;gap:5px;cursor:pointer;}
+    .text-controls input[type=text],.text-controls select{border:1.5px solid var(--border);border-radius:7px;padding:5px 10px;font-size:.82rem;width:130px;outline:none;}
+    .text-controls input[type=text]:focus,.text-controls select:focus{border-color:var(--blue);}
+    .text-output{background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;padding:14px;font-family:'Courier New',Courier,monospace;font-size:.78rem;white-space:pre-wrap;line-height:1.55;min-height:80px;margin-bottom:10px;max-height:340px;overflow-y:auto;}
+    .copy-btn{width:100%;background:var(--teal);color:white;border:none;border-radius:10px;padding:13px;font-size:.95rem;font-weight:700;cursor:pointer;transition:background .15s;}
+    .copy-btn:hover{background:var(--teal-dark);}
+    .copy-confirm{text-align:center;color:var(--green-fg);font-size:.82rem;margin-top:6px;min-height:18px;font-weight:600;}
+
+    footer{text-align:center;padding:24px 16px;font-size:.72rem;color:var(--muted);}
+
+    @media(max-width:440px){
+      .shift-label{display:none;}
+      .shift-time{width:105px;}
+      .pattern-table th:last-child,.pattern-table td:last-child{display:none;}
+    }
+  </style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>Carolyn's Care Schedule</h1>
+  <p id="headerPeriod">Coverage Tracker</p>
+</header>
+
+<div class="main">
+
+  <!-- ── Schedule Period ── -->
+  <div class="card">
+    <div class="section-label">Schedule Period (2 Weeks)</div>
+    <div class="period-row">
+      <div class="period-field">
+        <span class="field-label">Start date</span>
+        <input type="date" id="startDateInput" onchange="onStartDateChange()" />
+      </div>
+      <div class="period-sep">→</div>
+      <div class="period-field">
+        <span class="field-label">End date</span>
+        <div class="period-static" id="endDateDisplay">—</div>
+      </div>
+    </div>
+    <button class="btn btn-outline btn-block" onclick="confirmResetToPattern()">
+      ↺ Reset schedule to pattern defaults
+    </button>
+  </div>
+
+  <!-- ── Weekly Pattern ── -->
+  <details class="card">
+    <summary>
+      Weekly Pattern
+      <span style="font-size:.75rem;color:var(--muted);font-weight:400;">tap to edit ▾</span>
+    </summary>
+    <div id="patternEditor" style="margin-top:12px;"></div>
+  </details>
+
+  <!-- ── Caregivers ── -->
+  <div class="card">
+    <div class="section-label">Caregivers</div>
+    <div class="chips" id="chips"></div>
+    <div class="add-row">
+      <input type="text" id="newName" placeholder="Add caregiver name…" />
+      <button class="btn" onclick="addCaregiver()">Add</button>
+    </div>
+  </div>
+
+  <!-- ── Summary bar ── -->
+  <div class="summary-bar" id="summaryBar"></div>
+
+  <!-- ── Schedule grid ── -->
+  <div id="schedule"></div>
+
+  <!-- ── Full schedule text ── -->
+  <div class="card">
+    <div class="section-label">Full Schedule Text</div>
+    <div class="text-controls">
+      <label><input type="checkbox" id="uncoveredOnly" onchange="renderText()" /> Open shifts only</label>
+      <label>Sign-off: <input type="text" id="signoff" placeholder="e.g. Kathy" oninput="renderText()" /></label>
+    </div>
+    <div class="text-output" id="textOut"></div>
+    <button class="copy-btn" onclick="copyText('textOut','copyConfirm')">📋&nbsp; Copy to Clipboard</button>
+    <div class="copy-confirm" id="copyConfirm"></div>
+  </div>
+
+  <!-- ── Caregiver-specific text ── -->
+  <div class="card">
+    <div class="section-label">Message for a Specific Caregiver</div>
+    <div class="text-controls">
+      <label>Send to:
+        <select id="caregiverPick" onchange="renderPersonText()" style="width:auto;">
+          <option value="">— choose caregiver —</option>
+        </select>
+      </label>
+      <label>Sign-off: <input type="text" id="signoff2" placeholder="e.g. Kathy" oninput="renderPersonText()" /></label>
+    </div>
+    <div class="text-output" id="textOut2" style="min-height:60px;"></div>
+    <button class="copy-btn" onclick="copyText('textOut2','copyConfirm2')">📋&nbsp; Copy to Clipboard</button>
+    <div class="copy-confirm" id="copyConfirm2"></div>
+  </div>
+
+</div>
+
+<footer>Changes save automatically in your browser.</footer>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════
+// Constants
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const SHIFT_DEFS = [
+  { id:'morning',   time:'8:30a – 1:00p', label:'Morning',   icon:'☀️'  },
+  { id:'afternoon', time:'1:00p – 5:00p', label:'Afternoon', icon:'🌤'  },
+  { id:'evening',   time:'5:00p – 7:30p', label:'Evening',   icon:'🌙'  },
+  { id:'overnight', time:'7:30p – 8:30a', label:'Overnight', icon:'⭐'  },
+];
+
+// dow 0=Sun … 6=Sat
+const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+// Default weekly pattern
+const DEFAULT_PATTERN = {
+  0:{ afternoonNeeded:true,  preset:'Deddeh' }, // Sun
+  1:{ afternoonNeeded:true,  preset:null      }, // Mon
+  2:{ afternoonNeeded:false, preset:null      }, // Tue  (day program 1-5p)
+  3:{ afternoonNeeded:false, preset:null      }, // Wed  (day program 1-5p)
+  4:{ afternoonNeeded:true,  preset:null      }, // Thu
+  5:{ afternoonNeeded:true,  preset:null      }, // Fri
+  6:{ afternoonNeeded:true,  preset:'Deddeh' }, // Sat
+};
+
+const DEFAULT_CAREGIVERS = ['Marty','Janice','Carol','Renee','Brad','Dean','Kim','Patty','Deddeh'];
+
+const STORAGE_KEY = 'carolyn-care-v3';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let state = loadState();
+let DAYS  = []; // computed from state.startDate + state.pattern
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Persistence
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function loadState() {
+  try {
+    const s = localStorage.getItem(STORAGE_KEY);
+    if (s) {
+      const parsed = JSON.parse(s);
+      // Ensure pattern keys are numbers
+      if (parsed.pattern) {
+        const p = {};
+        for (const k in parsed.pattern) p[Number(k)] = parsed.pattern[k];
+        parsed.pattern = p;
+      }
+      return parsed;
+    }
+  } catch(_) {}
+  const st = {
+    caregivers : [...DEFAULT_CAREGIVERS],
+    startDate  : '2026-06-24',
+    pattern    : deepClone(DEFAULT_PATTERN),
+    assignments: {},
+  };
+  // Seed with preset assignments for initial dates
+  const days = generateDays(st.startDate, st.pattern);
+  applyPresets(st, days);
+  return st;
+}
+
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Day generation
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function generateDays(startDateStr, pattern) {
+  const days = [];
+  // noon to avoid DST edge cases
+  const start = new Date(startDateStr + 'T12:00:00');
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const dow = d.getDay();
+    const pat = pattern[dow] || { afternoonNeeded:true, preset:null };
+    const dk  = toDateKey(d);
+    days.push({
+      date    : d.toLocaleDateString('en-US', { weekday:'short', month:'long', day:'numeric' }),
+      dateKey : dk,
+      dow,
+      afternoonNeeded : pat.afternoonNeeded,
+      preset          : pat.preset || null,
+    });
+  }
+  return days;
+}
+
+function toDateKey(d) {
+  // YYYY-MM-DD
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+function refreshDays() {
+  DAYS = generateDays(state.startDate, state.pattern);
+}
+
+// Apply pattern presets only to slots that have no existing assignment
+function applyPresets(st, days) {
+  days.forEach(day => {
+    if (!day.preset) return;
+    SHIFT_DEFS.forEach(s => {
+      if (s.id === 'afternoon' && !day.afternoonNeeded) return;
+      const k = aKey(day.dateKey, s.id);
+      if (!st.assignments[k]) st.assignments[k] = day.preset;
+    });
+  });
+}
+
+// Apply presets and OVERWRITE existing assignments (used by "reset")
+function applyPresetsForce(st, days) {
+  const dateKeys = new Set(days.map(d => d.dateKey));
+  // Clear all assignments for this date range
+  for (const k in st.assignments) {
+    if (dateKeys.has(k.split('|')[0])) delete st.assignments[k];
+  }
+  days.forEach(day => {
+    if (!day.preset) return;
+    SHIFT_DEFS.forEach(s => {
+      if (s.id === 'afternoon' && !day.afternoonNeeded) return;
+      st.assignments[aKey(day.dateKey, s.id)] = day.preset;
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Assignment helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function aKey(dateKey, shiftId) { return `${dateKey}|${shiftId}`; }
+function getAssigned(dateKey, shiftId) { return state.assignments[aKey(dateKey, shiftId)] || ''; }
+
+function assign(dateKey, shiftId, value) {
+  const k = aKey(dateKey, shiftId);
+  if (value) state.assignments[k] = value;
+  else        delete state.assignments[k];
+  save();
+  const dayIdx = DAYS.findIndex(d => d.dateKey === dateKey);
+  if (dayIdx >= 0) refreshDayUI(dayIdx);
+  updateSummary();
+  renderText();
+  renderPersonText();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Date picker
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function onStartDateChange() {
+  const val = document.getElementById('startDateInput').value;
+  if (!val) return;
+  state.startDate = val;
+  refreshDays();
+  applyPresets(state, DAYS); // fill in presets for new dates that have none
+  save();
+  updateHeader();
+  renderSchedule();
+  renderText();
+  renderPersonText();
+}
+
+function updateHeader() {
+  const input = document.getElementById('startDateInput');
+  input.value = state.startDate;
+
+  const start = new Date(state.startDate + 'T12:00:00');
+  const end   = new Date(start);
+  end.setDate(end.getDate() + 13);
+
+  const fmt = d => d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  document.getElementById('endDateDisplay').textContent = fmt(end);
+  document.getElementById('headerPeriod').textContent =
+    `${fmt(start)} – ${fmt(end)}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Pattern editor
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function renderPatternEditor() {
+  const order = [1,2,3,4,5,6,0]; // Mon … Sun
+  const rows = order.map(dow => {
+    const pat = state.pattern[dow];
+    const opts = ['', ...state.caregivers].map(c =>
+      `<option value="${esc(c)}" ${(pat.preset||'')===c?'selected':''}>${c||'None (manual only)'}</option>`
+    ).join('');
+    return `
+      <tr>
+        <td class="pattern-day-name">${DAY_NAMES[dow]}</td>
+        <td>
+          <label class="pattern-toggle">
+            <input type="checkbox" ${pat.afternoonNeeded?'checked':''} onchange="onPatternToggle(${dow},this.checked)" />
+            <span style="font-size:.78rem;">${pat.afternoonNeeded ? 'Afternoon needed' : 'Day program 1–5p'}</span>
+          </label>
+        </td>
+        <td>
+          <select class="pattern-select" onchange="onPatternPreset(${dow},this.value)">
+            ${opts}
+          </select>
+        </td>
+      </tr>`;
+  }).join('');
+
+  document.getElementById('patternEditor').innerHTML = `
+    <table class="pattern-table">
+      <thead>
+        <tr>
+          <th>Day</th>
+          <th>Afternoon (1–5p)</th>
+          <th>Auto-assign all shifts</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p style="margin-top:10px;font-size:.75rem;color:var(--muted);">
+      "Auto-assign" pre-fills all shifts for that day with the chosen caregiver. Use "Reset schedule" above to apply changes.
+    </p>`;
+}
+
+function onPatternToggle(dow, checked) {
+  state.pattern[dow].afternoonNeeded = checked;
+  save();
+  renderPatternEditor();
+}
+
+function onPatternPreset(dow, value) {
+  state.pattern[dow].preset = value || null;
+  save();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Reset
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function confirmResetToPattern() {
+  if (!confirm('Reset all shift assignments to the current pattern defaults?\n\nThis cannot be undone.')) return;
+  refreshDays();
+  applyPresetsForce(state, DAYS);
+  save();
+  renderSchedule();
+  renderText();
+  renderPersonText();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Caregivers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function renderCaregivers() {
+  document.getElementById('chips').innerHTML = state.caregivers.map(name => `
+    <div class="chip">
+      ${esc(name)}
+      <button class="chip-remove" onclick="removeCaregiver('${esc(name)}')" title="Remove">×</button>
+    </div>`).join('');
+}
+
+function addCaregiver() {
+  const input = document.getElementById('newName');
+  const name  = input.value.trim();
+  if (name && !state.caregivers.includes(name)) {
+    state.caregivers.push(name);
+    save();
+    renderCaregivers();
+    renderPatternEditor();
+    renderSchedule();
+    renderText();
+    refreshCaregiverPick();
+  }
+  input.value = '';
+  input.focus();
+}
+
+function removeCaregiver(name) {
+  if (!confirm(`Remove "${name}" from the caregivers list?`)) return;
+  state.caregivers = state.caregivers.filter(c => c !== name);
+  for (const k in state.assignments) {
+    if (state.assignments[k] === name) delete state.assignments[k];
+  }
+  save();
+  renderCaregivers();
+  renderPatternEditor();
+  renderSchedule();
+  renderText();
+  refreshCaregiverPick();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Schedule render
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function shiftNeeded(day, shiftDef) {
+  if (shiftDef.id === 'afternoon') return day.afternoonNeeded;
+  return true;
+}
+
+function renderSchedule() {
+  document.getElementById('schedule').innerHTML =
+    DAYS.map((day, i) => renderDay(day, i)).join('');
+  updateSummary();
+}
+
+function renderDay(day, i) {
+  const note = !day.afternoonNeeded ? 'Day program 1–5p' : null;
+  return `
+    <div class="card day-card" id="day-${i}">
+      <div class="day-header">
+        <div>
+          <div class="day-name">${day.date}</div>
+          ${note ? `<div class="day-note">${note}</div>` : ''}
+        </div>
+        <div class="badge ${badgeClass(i)}" id="badge-${i}">${badgeText(i)}</div>
+      </div>
+      <div id="shifts-${i}">${renderShifts(day, i)}</div>
+    </div>`;
+}
+
+function renderShifts(day, dayIdx) {
+  return SHIFT_DEFS.map(s => renderShift(day, s, dayIdx)).join('');
+}
+
+function renderShift(day, shiftDef, dayIdx) {
+  const needed = shiftNeeded(day, shiftDef);
+  if (!needed) {
+    return `
+      <div class="shift-row shift-closed">
+        <span class="shift-icon">${shiftDef.icon}</span>
+        <span class="shift-time">${shiftDef.time}</span>
+        <span class="shift-label">${shiftDef.label}</span>
+        <span class="shift-closed-text">Day program</span>
+      </div>`;
+  }
+  const assigned = getAssigned(day.dateKey, shiftDef.id);
+  const cls = assigned ? 'shift-covered' : 'shift-needed';
+  const opts = ['', ...state.caregivers].map(c =>
+    `<option value="${esc(c)}" ${c===assigned?'selected':''}>${c||'— assign caregiver —'}</option>`
+  ).join('');
+  return `
+    <div class="shift-row ${cls}" id="shift-${dayIdx}-${shiftDef.id}">
+      <span class="shift-icon">${shiftDef.icon}</span>
+      <span class="shift-time">${shiftDef.time}</span>
+      <span class="shift-label">${shiftDef.label}</span>
+      <div class="shift-assign">
+        <select onchange="assign('${day.dateKey}','${shiftDef.id}',this.value)">${opts}</select>
+      </div>
+    </div>`;
+}
+
+function refreshDayUI(dayIdx) {
+  const day = DAYS[dayIdx];
+  document.getElementById(`shifts-${dayIdx}`).innerHTML = renderShifts(day, dayIdx);
+  const badge = document.getElementById(`badge-${dayIdx}`);
+  if (badge) { badge.className = `badge ${badgeClass(dayIdx)}`; badge.textContent = badgeText(dayIdx); }
+}
+
+// ── Badge helpers ──────────────────────────────────────────────────────────────
+
+function neededShifts(dayIdx) {
+  return SHIFT_DEFS.filter(s => shiftNeeded(DAYS[dayIdx], s));
+}
+
+function coveredCount(dayIdx) {
+  return neededShifts(dayIdx).filter(s => getAssigned(DAYS[dayIdx].dateKey, s.id)).length;
+}
+
+function badgeText(dayIdx) {
+  const need = neededShifts(dayIdx).length;
+  const cov  = coveredCount(dayIdx);
+  if (cov === 0)    return 'Needs coverage';
+  if (cov === need) return '✓ All covered';
+  return `${cov} / ${need} covered`;
+}
+
+function badgeClass(dayIdx) {
+  const need = neededShifts(dayIdx).length;
+  const cov  = coveredCount(dayIdx);
+  if (cov === 0)    return 'badge-red';
+  if (cov === need) return 'badge-green';
+  return 'badge-yellow';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Summary bar
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function updateSummary() {
+  let total = 0, covered = 0;
+  DAYS.forEach((_, i) => {
+    total   += neededShifts(i).length;
+    covered += coveredCount(i);
+  });
+  const open = total - covered;
+  document.getElementById('summaryBar').innerHTML = `
+    <div class="pill pill-gray">${total} shifts total</div>
+    <div class="pill pill-green">✓ ${covered} covered</div>
+    ${open ? `<div class="pill pill-red">⚠ ${open} still open</div>` : ''}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Text generators
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function periodLabel() {
+  const start = new Date(state.startDate + 'T12:00:00');
+  const end   = new Date(start); end.setDate(end.getDate() + 13);
+  const fmt = d => d.toLocaleDateString('en-US', { month:'long', day:'numeric' });
+  return `${fmt(start)} – ${fmt(end)}, ${start.getFullYear()}`;
+}
+
+function renderText() {
+  const onlyOpen = document.getElementById('uncoveredOnly').checked;
+  const signoff  = document.getElementById('signoff').value.trim();
+  const lines    = [`Carolyn's Coverage Schedule — ${periodLabel()}`, ''];
+
+  DAYS.forEach((day, i) => {
+    const needed = neededShifts(i);
+    const rows   = needed
+      .map(s => {
+        const a = getAssigned(day.dateKey, s.id);
+        if (onlyOpen && a) return null;
+        return `  • ${s.time}: ${a || 'NEEDED'}`;
+      })
+      .filter(Boolean);
+
+    if (onlyOpen && rows.length === 0) return;
+    lines.push(day.date);
+    lines.push(rows.length ? rows.join('\n') : '  ✓ All covered');
+    lines.push('');
+  });
+
+  if (signoff) { lines.push('Thanks –'); lines.push(signoff); }
+  document.getElementById('textOut').textContent = lines.join('\n').trimEnd();
+}
+
+function renderPersonText() {
+  const pick    = document.getElementById('caregiverPick').value;
+  const signoff = document.getElementById('signoff2').value.trim();
+  const out     = document.getElementById('textOut2');
+
+  if (!pick) { out.textContent = 'Choose a caregiver above to generate their personal message.'; return; }
+
+  const rows = [];
+  DAYS.forEach(day => {
+    SHIFT_DEFS.forEach(s => {
+      if (!shiftNeeded(day, s)) return;
+      if (getAssigned(day.dateKey, s.id) === pick)
+        rows.push(`  • ${day.date}: ${s.time} (${s.label})`);
+    });
+  });
+
+  if (!rows.length) { out.textContent = `${pick} has no shifts assigned yet.`; return; }
+
+  const lines = [
+    `Hi ${pick}!`, '',
+    `Here are your shifts covering for Carolyn (${periodLabel()}):`, '',
+    ...rows, '',
+    'Please let me know if you have any questions or conflicts.', '',
+  ];
+  if (signoff) { lines.push('Thanks –'); lines.push(signoff); }
+  out.textContent = lines.join('\n').trimEnd();
+}
+
+function refreshCaregiverPick() {
+  const sel     = document.getElementById('caregiverPick');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— choose caregiver —</option>' +
+    state.caregivers.map(c =>
+      `<option value="${esc(c)}" ${c===current?'selected':''}>${esc(c)}</option>`
+    ).join('');
+  renderPersonText();
+}
+
+function copyText(outId, confirmId) {
+  const text = document.getElementById(outId).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const el = document.getElementById(confirmId);
+    el.textContent = '✓ Copied to clipboard!';
+    setTimeout(() => el.textContent = '', 2500);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Utility
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Enter key on add-caregiver input
+document.getElementById('newName').addEventListener('keydown', e => { if(e.key==='Enter') addCaregiver(); });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Boot
+// ═══════════════════════════════════════════════════════════════════════════════
+
+refreshDays();
+updateHeader();
+renderCaregivers();
+renderPatternEditor();
+renderSchedule();
+renderText();
+refreshCaregiverPick();
+</script>
+</body>
+</html>
