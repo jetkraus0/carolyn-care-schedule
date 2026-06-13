@@ -169,16 +169,30 @@
   <!-- ── Schedule grid ── -->
   <div id="schedule"></div>
 
-  <!-- ── Full schedule text ── -->
+  <!-- ── Weekday schedule text ── -->
   <div class="card">
-    <div class="section-label">Full Schedule Text</div>
+    <div class="section-label">Weekday Schedule Text</div>
     <div class="text-controls">
       <label><input type="checkbox" id="uncoveredOnly" onchange="renderText()" /> Open shifts only</label>
       <label>Sign-off: <input type="text" id="signoff" placeholder="e.g. Kathy" oninput="renderText()" /></label>
     </div>
+    <div style="font-size:.72rem;color:var(--muted);margin-bottom:8px;">
+      Pre-filled from calendar history: Kim (Wed mornings) · Renee (evenings Mon–Fri) · Janice (Wed overnight) · Carol (overnight Thu/Fri bi-weekly)
+    </div>
     <div class="text-output" id="textOut"></div>
-    <button class="copy-btn" onclick="copyText('textOut','copyConfirm')">📋&nbsp; Copy to Clipboard</button>
+    <button class="copy-btn" onclick="copyText('textOut','copyConfirm')">📋&nbsp; Copy Weekday Text</button>
     <div class="copy-confirm" id="copyConfirm"></div>
+  </div>
+
+  <!-- ── Weekend schedule text ── -->
+  <div class="card">
+    <div class="section-label">Weekend Schedule Text</div>
+    <div class="text-controls">
+      <label>Sign-off: <input type="text" id="signoffWknd" placeholder="e.g. Kathy" oninput="renderText()" /></label>
+    </div>
+    <div class="text-output" id="textOutWknd"></div>
+    <button class="copy-btn" onclick="copyText('textOutWknd','copyConfirmWknd')">📋&nbsp; Copy Weekend Text</button>
+    <div class="copy-confirm" id="copyConfirmWknd"></div>
   </div>
 
   <!-- ── Caregiver-specific text ── -->
@@ -229,7 +243,29 @@ const DEFAULT_PATTERN = {
 
 const DEFAULT_CAREGIVERS = ['Marty','Janice','Carol','Renee','Brad','Dean','Kim','Patty','Deddeh'];
 
-const STORAGE_KEY = 'carolyn-care-v3';
+// Per-shift historical defaults derived from recurring calendar events (May–June 2026)
+//   Wed: Kim 8:30a–1p weekly · Renee 5:30–7:30p weekly · Janice 7:30p overnight weekly
+//   Mon/Tue/Thu/Fri: Renee 5–7:30p weekly
+const HISTORICAL_WEEKDAY_SHIFTS = {
+  1: { evening:'Renee' },                                        // Mon
+  2: { evening:'Renee' },                                        // Tue
+  3: { morning:'Kim', evening:'Renee', overnight:'Janice' },     // Wed
+  4: { evening:'Renee' },                                        // Thu
+  5: { evening:'Renee' },                                        // Fri
+};
+
+// Carol covers overnight bi-weekly Thu/Fri — anchor date: Thu May 28 2026
+const CAROL_OVERNIGHT_REF = new Date('2026-05-28T12:00:00');
+
+function isCarolOvernightDate(dateKey) {
+  const d = new Date(dateKey + 'T12:00:00');
+  const dow = d.getDay();
+  if (dow !== 4 && dow !== 5) return false;
+  const diffDays = Math.round((d - CAROL_OVERNIGHT_REF) / 86400000);
+  return diffDays >= 0 && diffDays % 14 < 2; // Thu=0, Fri=1 within Carol's bi-weekly window
+}
+
+const STORAGE_KEY = 'carolyn-care-v4';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // State
@@ -311,9 +347,25 @@ function refreshDays() {
   DAYS = generateDays(state.startDate, state.pattern);
 }
 
-// Apply pattern presets only to slots that have no existing assignment
+// Apply defaults only to slots with no existing assignment (soft fill)
+// Priority: 1) historical weekday patterns  2) Carol bi-weekly overnight  3) day-level preset (Deddeh weekends)
 function applyPresets(st, days) {
   days.forEach(day => {
+    // 1. Historical weekday shift defaults
+    const hist = HISTORICAL_WEEKDAY_SHIFTS[day.dow];
+    if (hist) {
+      SHIFT_DEFS.forEach(s => {
+        if (s.id === 'afternoon' && !day.afternoonNeeded) return;
+        const k = aKey(day.dateKey, s.id);
+        if (!st.assignments[k] && hist[s.id]) st.assignments[k] = hist[s.id];
+      });
+    }
+    // 2. Carol bi-weekly overnight (Thu/Fri)
+    if (isCarolOvernightDate(day.dateKey)) {
+      const k = aKey(day.dateKey, 'overnight');
+      if (!st.assignments[k]) st.assignments[k] = 'Carol';
+    }
+    // 3. Day-level preset (e.g. Deddeh for Sat/Sun)
     if (!day.preset) return;
     SHIFT_DEFS.forEach(s => {
       if (s.id === 'afternoon' && !day.afternoonNeeded) return;
@@ -323,20 +375,13 @@ function applyPresets(st, days) {
   });
 }
 
-// Apply presets and OVERWRITE existing assignments (used by "reset")
+// Clear all assignments in range then reapply from scratch (used by "reset")
 function applyPresetsForce(st, days) {
   const dateKeys = new Set(days.map(d => d.dateKey));
-  // Clear all assignments for this date range
   for (const k in st.assignments) {
     if (dateKeys.has(k.split('|')[0])) delete st.assignments[k];
   }
-  days.forEach(day => {
-    if (!day.preset) return;
-    SHIFT_DEFS.forEach(s => {
-      if (s.id === 'afternoon' && !day.afternoonNeeded) return;
-      st.assignments[aKey(day.dateKey, s.id)] = day.preset;
-    });
-  });
+  applyPresets(st, days);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -623,11 +668,18 @@ function periodLabel() {
 }
 
 function renderText() {
+  renderWeekdayText();
+  renderWeekendText();
+}
+
+function renderWeekdayText() {
   const onlyOpen = document.getElementById('uncoveredOnly').checked;
   const signoff  = document.getElementById('signoff').value.trim();
-  const lines    = [`Carolyn's Coverage Schedule — ${periodLabel()}`, ''];
+  const lines    = [`Carolyn's Weekday Coverage — ${periodLabel()}`, ''];
+  const WKDAY    = new Set([1,2,3,4,5]);
 
   DAYS.forEach((day, i) => {
+    if (!WKDAY.has(day.dow)) return;
     const needed = neededShifts(i);
     const rows   = needed
       .map(s => {
@@ -645,6 +697,60 @@ function renderText() {
 
   if (signoff) { lines.push('Thanks –'); lines.push(signoff); }
   document.getElementById('textOut').textContent = lines.join('\n').trimEnd();
+}
+
+function renderWeekendText() {
+  const signoff = document.getElementById('signoffWknd').value.trim();
+  const lines   = [`Carolyn's Weekend Coverage — ${periodLabel()}`, ''];
+  const WKEND   = new Set([0,6]);
+
+  // Group into Sat–Sun pairs
+  const wkendDays = DAYS.map((day, i) => ({ day, i })).filter(({ day }) => WKEND.has(day.dow));
+
+  // Pair consecutive Sat + Sun
+  let idx = 0;
+  while (idx < wkendDays.length) {
+    const { day: sat, i: si } = wkendDays[idx];
+    const next = wkendDays[idx + 1];
+
+    // Check if all shifts for this weekend block share one caregiver
+    const blockDays = (next && next.day.dow === 0) ? [{ day: sat, i: si }, next] : [{ day: sat, i: si }];
+    const allAssigned = blockDays.every(({ day, i }) =>
+      neededShifts(i).every(s => getAssigned(day.dateKey, s.id))
+    );
+    const singleCaregiver = (() => {
+      const names = new Set();
+      blockDays.forEach(({ day, i }) => neededShifts(i).forEach(s => {
+        const a = getAssigned(day.dateKey, s.id);
+        if (a) names.add(a);
+      }));
+      return names.size === 1 ? [...names][0] : null;
+    })();
+
+    if (singleCaregiver && allAssigned) {
+      // Compact summary format
+      const satD  = new Date(sat.dateKey + 'T12:00:00');
+      const monD  = new Date(sat.dateKey + 'T12:00:00'); monD.setDate(monD.getDate() + 2);
+      const fmt   = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+      lines.push(`${fmt(satD)} – ${fmt(monD)} 8:30a`);
+      lines.push(`  ${singleCaregiver}`);
+    } else {
+      // Full per-shift breakdown
+      blockDays.forEach(({ day, i }) => {
+        lines.push(day.date);
+        neededShifts(i).forEach(s => {
+          const a = getAssigned(day.dateKey, s.id);
+          lines.push(`  • ${s.time}: ${a || 'NEEDED'}`);
+        });
+      });
+    }
+    lines.push('');
+    idx += blockDays.length;
+  }
+
+  if (!wkendDays.length) lines.push('No weekend days in this schedule period.');
+  if (signoff) { lines.push('Thanks –'); lines.push(signoff); }
+  document.getElementById('textOutWknd').textContent = lines.join('\n').trimEnd();
 }
 
 function renderPersonText() {
