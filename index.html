@@ -52,8 +52,9 @@
     .btn-sm{padding:4px 10px;font-size:.78rem;border-radius:7px;}
 
     /* Shift template editor */
-    .shift-tpl-row{display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid var(--gray-bg);}
-    .shift-tpl-row:last-child{border-bottom:none;}
+    .shift-tpl-group{padding:5px 0 7px;border-bottom:1px solid var(--gray-bg);}
+    .shift-tpl-group:last-of-type{border-bottom:none;}
+    .shift-tpl-row{display:flex;align-items:center;gap:6px;padding:4px 0;}
     .tpl-icon-input{width:32px;text-align:center;border:1.5px solid var(--border);border-radius:6px;padding:3px 4px;font-size:1rem;background:white;outline:none;}
     .tpl-label-input{border:1.5px solid var(--border);border-radius:6px;padding:4px 8px;font-size:.82rem;width:88px;outline:none;}
     .tpl-time-input{border:1.5px solid var(--border);border-radius:6px;padding:4px 8px;font-size:.82rem;flex:1;min-width:90px;outline:none;}
@@ -64,6 +65,18 @@
     .add-tpl-row input{border:1.5px solid var(--border);border-radius:7px;padding:5px 8px;font-size:.82rem;outline:none;}
     .add-tpl-row input:focus{border-color:var(--blue);}
     .tpl-hint{font-size:.7rem;color:var(--muted);margin-top:6px;}
+    /* per-weekday time overrides */
+    .tpl-day-details{margin-left:38px;}
+    .tpl-day-details summary{display:inline-flex;font-size:.72rem;font-weight:600;color:var(--muted);cursor:pointer;list-style:none;user-select:none;}
+    .tpl-day-details summary::-webkit-details-marker{display:none;}
+    .tpl-day-details summary:hover{color:var(--blue);}
+    .tpl-day-details[open] summary{color:var(--blue);}
+    .tpl-day-grid{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:center;margin-top:7px;padding:9px 11px;background:var(--gray-bg);border-radius:8px;}
+    .tpl-day-grid label{font-size:.72rem;font-weight:600;color:var(--muted);}
+    .tpl-day-grid input{border:1.5px solid var(--border);border-radius:6px;padding:4px 8px;font-size:.78rem;outline:none;background:white;}
+    .tpl-day-grid input:focus{border-color:var(--blue);}
+    .tpl-day-grid input.has-override{border-color:var(--blue);background:#eff6ff;font-weight:600;}
+    .tpl-day-grid-hint{grid-column:1/-1;font-size:.66rem;color:var(--muted);}
 
     /* Pattern table */
     .pattern-table{width:100%;border-collapse:collapse;}
@@ -266,11 +279,13 @@
 // Default constants (used only for fresh state)
 // ═══════════════════════════════════════════════════════════════════
 
+// dayTimes = per-weekday time overrides keyed by day-of-week (0=Sun … 6=Sat).
+// Wednesday evening runs later (5:30p–8:30p), so overnight starts at 8:30p.
 const DEFAULT_SHIFT_DEFS = [
-  { id:'morning',   icon:'☀️', label:'Morning',   time:'8:30a – 1:00p' },
-  { id:'afternoon', icon:'🌤', label:'Afternoon', time:'1:00p – 5:00p' },
-  { id:'evening',   icon:'🌙', label:'Evening',   time:'5:00p – 7:30p' },
-  { id:'overnight', icon:'⭐', label:'Overnight', time:'7:30p – 8:30a' },
+  { id:'morning',   icon:'☀️', label:'Morning',   time:'8:30a – 1:00p', dayTimes:{} },
+  { id:'afternoon', icon:'🌤', label:'Afternoon', time:'1:00p – 5:00p', dayTimes:{} },
+  { id:'evening',   icon:'🌙', label:'Evening',   time:'5:00p – 7:30p', dayTimes:{ 3:'5:30p – 8:30p' } },
+  { id:'overnight', icon:'⭐', label:'Overnight', time:'7:30p – 8:30a', dayTimes:{ 3:'8:30p – 8:30a' } },
 ];
 
 const DEFAULT_PATTERN = {
@@ -325,6 +340,15 @@ function loadState() {
       const s = JSON.parse(raw);
       // Migrate: add new fields if missing
       if (!s.shiftDefs)    s.shiftDefs    = deepClone(DEFAULT_SHIFT_DEFS);
+      // Migrate: per-weekday time overrides (Wednesday runs to 8:30p)
+      const hadDayTimes = s.shiftDefs.some(d => d.dayTimes);
+      s.shiftDefs.forEach(d => { if (!d.dayTimes) d.dayTimes = {}; });
+      if (!hadDayTimes) {
+        const ev = s.shiftDefs.find(d => d.id === 'evening');
+        const on = s.shiftDefs.find(d => d.id === 'overnight');
+        if (ev) ev.dayTimes[3] = '5:30p – 8:30p';
+        if (on) on.dayTimes[3] = '8:30p – 8:30a';
+      }
       if (!s.dayOverrides) s.dayOverrides = {};
       if (!s.assignments)  s.assignments  = {};
       if (!s.caregivers)   s.caregivers   = [...DEFAULT_CAREGIVERS];
@@ -503,15 +527,18 @@ function removeExtraShift(dateKey, shiftId) {
   renderPersonText();
 }
 
-// Returns the effective shift list for a given day
+// Returns the effective shift list for a given day.
+// Each shift's `time` is resolved from its per-weekday override if one exists.
 function getShiftsForDay(day) {
   const ov     = getOverrides(day.dateKey);
   const hidden = new Set(ov.hidden || []);
   return [
-    ...state.shiftDefs.filter(s => {
-      if (s.id === 'afternoon' && !day.afternoonNeeded) return false; // pattern-closed
-      return true; // even if needed=false, include it so we can show it as closed or hideable
-    }).map(s => ({ ...s, _isExtra:false, _hiddenByPattern: s.id==='afternoon' && !day.afternoonNeeded })),
+    ...state.shiftDefs.map(s => ({
+      ...s,
+      time: (s.dayTimes && s.dayTimes[day.dow]) || s.time,
+      _isExtra: false,
+      _hiddenByPattern: s.id === 'afternoon' && !day.afternoonNeeded,
+    })),
     ...(ov.extra || []).map(s => ({ ...s, _isExtra:true, _hiddenByPattern:false })),
   ].map(s => ({ ...s, _hidden: !s._isExtra && hidden.has(s.id) }));
 }
@@ -546,14 +573,42 @@ function updateHeader() {
 // Shift template editor
 // ═══════════════════════════════════════════════════════════════════
 
+const DOW_ORDER = [1,2,3,4,5,6,0]; // Mon-first display order
+
+function dayTimesSummary(s) {
+  const days = DOW_ORDER.filter(dow => (s.dayTimes || {})[dow]);
+  if (!days.length) return 'Same time every day — customize by day ▾';
+  return 'Different times: ' + days.map(d => DAY_NAMES[d].slice(0,3)).join(', ') + ' ▾';
+}
+
 function renderShiftTemplateEditor() {
-  const rows = state.shiftDefs.map((s, idx) => `
-    <div class="shift-tpl-row">
-      <input class="tpl-icon-input"  value="${esc(s.icon)}"  onchange="updateShiftDef(${idx},'icon',this.value)"  title="Icon (emoji)" />
-      <input class="tpl-label-input" value="${esc(s.label)}" onchange="updateShiftDef(${idx},'label',this.value)" placeholder="Label" />
-      <input class="tpl-time-input"  value="${esc(s.time)}"  onchange="updateShiftDef(${idx},'time',this.value)"  placeholder="e.g. 8:30a – 1:00p" />
-      <button class="tpl-del" onclick="deleteShiftDef(${idx})" title="Delete this shift">×</button>
-    </div>`).join('');
+  const rows = state.shiftDefs.map((s, idx) => {
+    const dayInputs = DOW_ORDER.map(dow => {
+      const ovVal = (s.dayTimes || {})[dow] || '';
+      return `
+        <label>${DAY_NAMES[dow].slice(0,3)}</label>
+        <input value="${esc(ovVal)}" placeholder="${esc(s.time)}"
+               class="${ovVal ? 'has-override' : ''}"
+               onchange="updateShiftDayTime(${idx},${dow},this)" />`;
+    }).join('');
+
+    return `
+    <div class="shift-tpl-group">
+      <div class="shift-tpl-row">
+        <input class="tpl-icon-input"  value="${esc(s.icon)}"  onchange="updateShiftDef(${idx},'icon',this.value)"  title="Icon (emoji)" />
+        <input class="tpl-label-input" value="${esc(s.label)}" onchange="updateShiftDef(${idx},'label',this.value)" placeholder="Label" />
+        <input class="tpl-time-input"  value="${esc(s.time)}"  onchange="updateShiftDef(${idx},'time',this.value)"  placeholder="e.g. 8:30a – 1:00p" />
+        <button class="tpl-del" onclick="deleteShiftDef(${idx})" title="Delete this shift">×</button>
+      </div>
+      <details class="tpl-day-details">
+        <summary>🗓 <span id="tplDaySum-${idx}">&nbsp;${dayTimesSummary(s)}</span></summary>
+        <div class="tpl-day-grid">
+          ${dayInputs}
+          <span class="tpl-day-grid-hint">Leave a day blank to use the default time.</span>
+        </div>
+      </details>
+    </div>`;
+  }).join('');
 
   document.getElementById('shiftTemplateEditor').innerHTML = `
     ${rows}
@@ -563,7 +618,22 @@ function renderShiftTemplateEditor() {
       <input id="newShiftTime"  placeholder="e.g. 2:00p – 4:00p" style="flex:1;min-width:120px;" />
       <button class="btn btn-sm" onclick="addShiftDef()">Add</button>
     </div>
-    <p class="tpl-hint">Changes here apply to all days. Use Hide/Restore on individual day cards for per-day adjustments.</p>`;
+    <p class="tpl-hint">The main time is the default for every day — expand "customize by day" to set different times for specific weekdays (e.g. Wednesday evening runs to 8:30p). Use Hide/Restore on day cards for one-off changes.</p>`;
+}
+
+function updateShiftDayTime(idx, dow, inputEl) {
+  const s = state.shiftDefs[idx];
+  if (!s.dayTimes) s.dayTimes = {};
+  const v = inputEl.value.trim();
+  if (v) s.dayTimes[dow] = v;
+  else   delete s.dayTimes[dow];
+  inputEl.classList.toggle('has-override', !!v);
+  const sum = document.getElementById(`tplDaySum-${idx}`);
+  if (sum) sum.innerHTML = '&nbsp;' + esc(dayTimesSummary(s));
+  save();
+  renderSchedule();
+  renderText();
+  renderPersonText();
 }
 
 function updateShiftDef(idx, field, value) {
@@ -594,7 +664,7 @@ function addShiftDef() {
   const label = document.getElementById('newShiftLabel').value.trim() || 'Custom';
   const time  = document.getElementById('newShiftTime').value.trim()  || '';
   const id    = 'shift-' + Date.now();
-  state.shiftDefs.push({ id, icon, label, time });
+  state.shiftDefs.push({ id, icon, label, time, dayTimes:{} });
   save();
   renderShiftTemplateEditor();
   renderSchedule();
