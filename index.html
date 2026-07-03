@@ -280,12 +280,13 @@
 // ═══════════════════════════════════════════════════════════════════
 
 // dayTimes = per-weekday time overrides keyed by day-of-week (0=Sun … 6=Sat).
-// Wednesday evening runs later (5:30p–8:30p), so overnight starts at 8:30p.
+// Evenings run 5:00p–8:30p except Wednesday, which ends at 7:30p
+// (so Wednesday's overnight starts at 7:30p instead of 8:30p).
 const DEFAULT_SHIFT_DEFS = [
   { id:'morning',   icon:'☀️', label:'Morning',   time:'8:30a – 1:00p', dayTimes:{} },
   { id:'afternoon', icon:'🌤', label:'Afternoon', time:'1:00p – 5:00p', dayTimes:{} },
-  { id:'evening',   icon:'🌙', label:'Evening',   time:'5:00p – 7:30p', dayTimes:{ 3:'5:30p – 8:30p' } },
-  { id:'overnight', icon:'⭐', label:'Overnight', time:'7:30p – 8:30a', dayTimes:{ 3:'8:30p – 8:30a' } },
+  { id:'evening',   icon:'🌙', label:'Evening',   time:'5:00p – 8:30p', dayTimes:{ 3:'5:00p – 7:30p' } },
+  { id:'overnight', icon:'⭐', label:'Overnight', time:'8:30p – 8:30a', dayTimes:{ 3:'7:30p – 8:30a' } },
 ];
 
 const DEFAULT_PATTERN = {
@@ -340,14 +341,20 @@ function loadState() {
       const s = JSON.parse(raw);
       // Migrate: add new fields if missing
       if (!s.shiftDefs)    s.shiftDefs    = deepClone(DEFAULT_SHIFT_DEFS);
-      // Migrate: per-weekday time overrides (Wednesday runs to 8:30p)
-      const hadDayTimes = s.shiftDefs.some(d => d.dayTimes);
+      // Migrate: per-weekday time overrides.
+      // Mon/Tue/Thu/Fri evenings run 5:00p–8:30p; Wednesday ends at 7:30p.
+      // Only rewrites untouched defaults (including a briefly-shipped
+      // reversed version) — hand-edited times are left alone.
       s.shiftDefs.forEach(d => { if (!d.dayTimes) d.dayTimes = {}; });
-      if (!hadDayTimes) {
-        const ev = s.shiftDefs.find(d => d.id === 'evening');
-        const on = s.shiftDefs.find(d => d.id === 'overnight');
-        if (ev) ev.dayTimes[3] = '5:30p – 8:30p';
-        if (on) on.dayTimes[3] = '8:30p – 8:30a';
+      const ev = s.shiftDefs.find(d => d.id === 'evening');
+      if (ev && ev.time === '5:00p – 7:30p' && [undefined, '5:30p – 8:30p'].includes(ev.dayTimes[3])) {
+        ev.time = '5:00p – 8:30p';
+        ev.dayTimes[3] = '5:00p – 7:30p';
+      }
+      const on = s.shiftDefs.find(d => d.id === 'overnight');
+      if (on && on.time === '7:30p – 8:30a' && [undefined, '8:30p – 8:30a'].includes(on.dayTimes[3])) {
+        on.time = '8:30p – 8:30a';
+        on.dayTimes[3] = '7:30p – 8:30a';
       }
       if (!s.dayOverrides) s.dayOverrides = {};
       if (!s.assignments)  s.assignments  = {};
@@ -618,7 +625,7 @@ function renderShiftTemplateEditor() {
       <input id="newShiftTime"  placeholder="e.g. 2:00p – 4:00p" style="flex:1;min-width:120px;" />
       <button class="btn btn-sm" onclick="addShiftDef()">Add</button>
     </div>
-    <p class="tpl-hint">The main time is the default for every day — expand "customize by day" to set different times for specific weekdays (e.g. Wednesday evening runs to 8:30p). Use Hide/Restore on day cards for one-off changes.</p>`;
+    <p class="tpl-hint">The main time is the default for every day — expand "customize by day" to set different times for specific weekdays (e.g. Wednesday evening ends at 7:30p). Use Hide/Restore on day cards for one-off changes.</p>`;
 }
 
 function updateShiftDayTime(idx, dow, inputEl) {
