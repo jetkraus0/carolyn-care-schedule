@@ -151,6 +151,11 @@
     .tpl-del:hover{color:var(--red-fg);}
     .add-tpl-row{display:flex;gap:7px;margin-top:12px;flex-wrap:wrap;}
     .add-tpl-row input{border:1.5px solid var(--border);border-radius:9px;padding:9px 10px;}
+    .tpl-days-row{display:flex;align-items:center;gap:5px;margin:5px 0 3px 4px;flex-wrap:wrap;}
+    .tpl-days-label{font-size:.78rem;font-weight:700;color:var(--muted);margin-right:2px;}
+    .day-chip{width:38px;height:34px;border-radius:9px;border:1.5px solid var(--border);background:white;color:var(--muted);font-size:.72rem;font-weight:800;cursor:pointer;padding:0;}
+    .day-chip.on{background:#dbeafe;border-color:var(--blue);color:var(--blue-dark);}
+    body.plan-b .day-chip.on{background:#ede9fe;border-color:var(--purple);color:var(--purple-dark);}
     .tpl-day-details{margin:2px 0 0 4px;}
     .tpl-day-details summary{display:inline-flex;font-size:.82rem;font-weight:700;color:var(--muted);cursor:pointer;list-style:none;user-select:none;padding:4px 0;}
     .tpl-day-details summary::-webkit-details-marker{display:none;}
@@ -287,7 +292,7 @@
 
     <div class="card">
       <div class="card-title">🕐 Shift times</div>
-      <div class="card-help">These are the shifts that appear on every day. Change a time here and it changes everywhere.
+      <div class="card-help">Change a time here and it changes everywhere. The day buttons control which days of the week a shift appears — weekends use one 12-hour Day shift instead of the weekday ones.
         <span class="plan-edit-note" id="planNoteShifts"></span>
       </div>
       <div id="shiftTemplateEditor"></div>
@@ -328,14 +333,22 @@
 // ═══════════════════════════════════════════════════════════════════
 
 // dayTimes = per-weekday time overrides keyed by day-of-week (0=Sun … 6=Sat).
-// Evenings run 5:00p–8:30p except Wednesday, which ends at 7:30p
-// (so Wednesday's overnight starts at 7:30p instead of 8:30p).
+// days     = which days of the week the shift appears (missing = every day).
+// Weekdays: Morning/Afternoon/Evening/Overnight. Evenings run 5:00p–8:30p
+// except Wednesday, which ends at 7:30p (overnight starts earlier that day).
+// Weekends: one 12-hour Day shift (8:30a–8:30p) plus the Overnight.
 const DEFAULT_SHIFT_DEFS = [
-  { id:'morning',   icon:'☀️', label:'Morning',   time:'8:30a – 1:00p', dayTimes:{} },
-  { id:'afternoon', icon:'🌤', label:'Afternoon', time:'1:00p – 5:00p', dayTimes:{} },
-  { id:'evening',   icon:'🌙', label:'Evening',   time:'5:00p – 8:30p', dayTimes:{ 3:'5:00p – 7:30p' } },
-  { id:'overnight', icon:'⭐', label:'Overnight', time:'8:30p – 8:30a', dayTimes:{ 3:'7:30p – 8:30a' } },
+  { id:'morning',     icon:'☀️', label:'Morning',   time:'8:30a – 1:00p', dayTimes:{}, days:[1,2,3,4,5] },
+  { id:'afternoon',   icon:'🌤', label:'Afternoon', time:'1:00p – 5:00p', dayTimes:{}, days:[1,2,3,4,5] },
+  { id:'evening',     icon:'🌙', label:'Evening',   time:'5:00p – 8:30p', dayTimes:{ 3:'5:00p – 7:30p' }, days:[1,2,3,4,5] },
+  { id:'weekend-day', icon:'🌞', label:'Day',       time:'8:30a – 8:30p', dayTimes:{}, days:[0,6] },
+  { id:'overnight',   icon:'⭐', label:'Overnight', time:'8:30p – 8:30a', dayTimes:{ 3:'7:30p – 8:30a' } },
 ];
+
+// True when a shift appears on the given day of week
+function shiftAppliesTo(s, dow) {
+  return !Array.isArray(s.days) || s.days.length === 0 || s.days.includes(dow);
+}
 
 const DEFAULT_PATTERN = {
   0:{ afternoonNeeded:true,  preset:'Deddeh' }, // Sun
@@ -456,6 +469,31 @@ function loadState() {
         if (on && on.time === '7:30p – 8:30a' && [undefined, '8:30p – 8:30a'].includes(on.dayTimes[3])) {
           on.time = '8:30p – 8:30a';
           on.dayTimes[3] = '7:30p – 8:30a';
+        }
+        // Migrate: weekends become two 12-hour shifts (Day 8:30a–8:30p +
+        // Overnight). Runs once on plans with the regular weekday structure;
+        // moves any weekend morning/afternoon/evening assignments onto the
+        // new Day shift so nothing already scheduled is lost.
+        const looksRegular = ['morning','afternoon','evening','overnight']
+          .every(id => pl.shiftDefs.some(d => d.id === id));
+        const alreadyDays = pl.shiftDefs.some(d => Array.isArray(d.days));
+        if (looksRegular && !alreadyDays && !pl.shiftDefs.some(d => d.id === 'weekend-day')) {
+          ['morning','afternoon','evening'].forEach(id => {
+            const d = pl.shiftDefs.find(x => x.id === id);
+            if (d) d.days = [1,2,3,4,5];
+          });
+          const onIdx = pl.shiftDefs.findIndex(d => d.id === 'overnight');
+          const wd = { id:'weekend-day', icon:'🌞', label:'Day', time:'8:30a – 8:30p', dayTimes:{}, days:[0,6] };
+          pl.shiftDefs.splice(onIdx >= 0 ? onIdx : pl.shiftDefs.length, 0, wd);
+          for (const k in pl.assignments) {
+            const dateKey = k.split('|')[0], shiftId = k.split('|')[1];
+            if (!['morning','afternoon','evening'].includes(shiftId)) continue;
+            const dow = new Date(dateKey + 'T12:00:00').getDay();
+            if (dow !== 0 && dow !== 6) continue;
+            const dk = aKey(dateKey, 'weekend-day');
+            if (!pl.assignments[dk]) pl.assignments[dk] = pl.assignments[k];
+            delete pl.assignments[k];
+          }
         }
         // Ensure pattern keys are numbers
         const p = {};
@@ -607,6 +645,7 @@ function applyPresets(pl, days) {
     const hist = HISTORICAL_WEEKDAY_SHIFTS[day.dow];
     if (hist) {
       pl.shiftDefs.forEach(s => {
+        if (!shiftAppliesTo(s, day.dow)) return;
         if (s.id === 'afternoon' && !day.afternoonNeeded) return;
         const k = aKey(day.dateKey, s.id);
         if (!pl.assignments[k] && hist[s.id]) pl.assignments[k] = hist[s.id];
@@ -618,6 +657,7 @@ function applyPresets(pl, days) {
     }
     if (!day.preset) return;
     pl.shiftDefs.forEach(s => {
+      if (!shiftAppliesTo(s, day.dow)) return;
       if (s.id === 'afternoon' && !day.afternoonNeeded) return;
       const k = aKey(day.dateKey, s.id);
       if (!pl.assignments[k]) pl.assignments[k] = day.preset;
@@ -715,7 +755,7 @@ function getShiftsForDay(day) {
   const ov     = getOverrides(day.dateKey);
   const hidden = new Set(ov.hidden || []);
   return [
-    ...plan().shiftDefs.map(s => ({
+    ...plan().shiftDefs.filter(s => shiftAppliesTo(s, day.dow)).map(s => ({
       ...s,
       time: (s.dayTimes && s.dayTimes[day.dow]) || s.time,
       _isExtra: false,
@@ -769,14 +809,16 @@ function updateHeader() {
 // ═══════════════════════════════════════════════════════════════════
 
 function dayTimesSummary(s) {
-  const days = DOW_ORDER.filter(dow => (s.dayTimes || {})[dow]);
+  const days = DOW_ORDER.filter(dow => shiftAppliesTo(s, dow) && (s.dayTimes || {})[dow]);
   if (!days.length) return 'Same time every day — tap to change one day ▾';
   return 'Different time on: ' + days.map(d => DAY_NAMES[d].slice(0,3)).join(', ') + ' ▾';
 }
 
+const DOW_CHIP = { 0:'Su', 1:'Mo', 2:'Tu', 3:'We', 4:'Th', 5:'Fr', 6:'Sa' };
+
 function renderShiftTemplateEditor() {
   const rows = plan().shiftDefs.map((s, idx) => {
-    const dayInputs = DOW_ORDER.map(dow => {
+    const dayInputs = DOW_ORDER.filter(dow => shiftAppliesTo(s, dow)).map(dow => {
       const ovVal = (s.dayTimes || {})[dow] || '';
       return `
         <label>${DAY_NAMES[dow].slice(0,3)}</label>
@@ -785,6 +827,11 @@ function renderShiftTemplateEditor() {
                onchange="updateShiftDayTime(${idx},${dow},this)" />`;
     }).join('');
 
+    const dayChips = DOW_ORDER.map(dow => `
+      <button class="day-chip ${shiftAppliesTo(s, dow) ? 'on' : ''}"
+              onclick="toggleShiftDay(${idx},${dow},this)"
+              title="${DAY_NAMES[dow]}">${DOW_CHIP[dow]}</button>`).join('');
+
     return `
     <div class="shift-tpl-group">
       <div class="shift-tpl-row">
@@ -792,6 +839,10 @@ function renderShiftTemplateEditor() {
         <input class="tpl-label-input" value="${esc(s.label)}" onchange="updateShiftDef(${idx},'label',this.value)" placeholder="Name" />
         <input class="tpl-time-input"  value="${esc(s.time)}"  onchange="updateShiftDef(${idx},'time',this.value)"  placeholder="e.g. 8:30a – 1:00p" />
         <button class="tpl-del" onclick="deleteShiftDef(${idx})" title="Delete this shift">×</button>
+      </div>
+      <div class="tpl-days-row">
+        <span class="tpl-days-label">On:</span>
+        ${dayChips}
       </div>
       <details class="tpl-day-details">
         <summary>🗓 <span id="tplDaySum-${idx}">&nbsp;${dayTimesSummary(s)}</span></summary>
@@ -815,6 +866,26 @@ function renderShiftTemplateEditor() {
 
 function updateShiftDef(idx, field, value) {
   plan().shiftDefs[idx][field] = value;
+  save();
+  renderSchedule();
+  renderText();
+  renderPersonText();
+}
+
+function toggleShiftDay(idx, dow, btn) {
+  const s = plan().shiftDefs[idx];
+  let days = (Array.isArray(s.days) && s.days.length) ? [...s.days] : [0,1,2,3,4,5,6];
+  if (days.includes(dow)) {
+    if (days.length === 1) return; // a shift has to appear on at least one day
+    days = days.filter(d => d !== dow);
+  } else {
+    days.push(dow);
+  }
+  if (days.length === 7) delete s.days;
+  else s.days = days.sort();
+  if (btn && btn.classList) btn.classList.toggle('on', shiftAppliesTo(s, dow));
+  const sum = document.getElementById(`tplDaySum-${idx}`);
+  if (sum) sum.innerHTML = '&nbsp;' + esc(dayTimesSummary(s));
   save();
   renderSchedule();
   renderText();
