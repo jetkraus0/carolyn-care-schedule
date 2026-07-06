@@ -64,6 +64,26 @@
     .jump-row{display:flex;align-items:center;justify-content:center;gap:8px;margin:10px 2px 0;font-size:.85rem;color:var(--muted);flex-wrap:wrap;}
     .jump-row input[type=date]{border:1.5px solid var(--border);border-radius:10px;padding:7px 10px;background:white;color:var(--text);}
 
+    /* ── Schedule view toggle + calendar ── */
+    .view-switch{display:flex;background:#dbe3ec;border-radius:12px;padding:3px;gap:3px;margin:12px 0 0;}
+    .view-btn{flex:1;border:none;border-radius:9px;padding:9px;font-size:.88rem;font-weight:800;color:var(--muted);background:none;cursor:pointer;min-height:42px;}
+    .view-btn.active{background:white;color:var(--blue-dark);box-shadow:0 1px 3px rgba(0,0,0,.12);}
+    body.plan-b .view-btn.active{color:var(--purple-dark);}
+    .cal-card{padding:12px;}
+    .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;}
+    .cal-head{text-align:center;font-size:.7rem;font-weight:800;color:var(--muted);padding:2px 0 4px;}
+    .cal-cell{position:relative;border:none;border-radius:10px;min-height:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;padding:7px 2px;background:var(--gray-bg);font-family:inherit;}
+    .cal-blank{background:none;cursor:default;}
+    .cal-green{background:var(--green-bg);color:var(--green-fg);}
+    .cal-red{background:var(--red-bg);color:var(--red-fg);}
+    .cal-yellow{background:var(--yellow-bg);color:var(--yellow-fg);}
+    .cal-selected{outline:3px solid var(--blue-dark);outline-offset:1px;}
+    body.plan-b .cal-selected{outline-color:var(--purple-dark);}
+    .cal-num{font-size:1.05rem;font-weight:800;line-height:1;}
+    .cal-sub{font-size:.62rem;font-weight:700;line-height:1;}
+    .cal-month{position:absolute;top:3px;left:5px;font-size:.58rem;font-weight:800;opacity:.75;}
+    .cal-detail-label{font-size:.8rem;color:var(--muted);font-weight:600;margin:2px 2px 8px;text-align:center;}
+
     /* ── Status banner ── */
     .banner{border-radius:16px;padding:16px 18px;margin-bottom:14px;}
     .banner-open{background:#fef2f2;border:2px solid #fecaca;}
@@ -231,6 +251,11 @@
     <div class="jump-row">
       <label for="startDateInput">Or start the schedule on:</label>
       <input type="date" id="startDateInput" onchange="onStartDateChange()" />
+    </div>
+
+    <div class="view-switch">
+      <button class="view-btn active" id="viewBtn-list" onclick="setScheduleView('list')">☰ List</button>
+      <button class="view-btn" id="viewBtn-calendar" onclick="setScheduleView('calendar')">📅 Calendar</button>
     </div>
 
     <div id="summaryBar" style="margin-top:14px;"></div>
@@ -439,7 +464,8 @@ const STORAGE_KEY = 'carolyn-care-v4';
 
 let state = loadState();
 let DAYS  = [];
-let openOnlyView = false; // schedule tab filter (not saved — resets each visit)
+let openOnlyView = false;   // schedule tab filter (not saved — resets each visit)
+let selectedDayIdx = 0;     // day shown under the calendar grid
 
 // The active plan: every schedule read/write goes through here.
 function plan() { return state.plans[state.activePlan]; }
@@ -536,6 +562,7 @@ function loadState() {
       if (typeof s.msgOpenOnly !== 'boolean') s.msgOpenOnly = false;
       if (typeof s.notes       !== 'string')  s.notes       = '';
       if (!Array.isArray(s.loa))              s.loa         = [];
+      if (s.scheduleView !== 'calendar')      s.scheduleView = 'list';
       return s;
     }
   } catch(_) {}
@@ -547,6 +574,7 @@ function loadState() {
     msgOpenOnly : false,
     notes       : '',
     loa         : [],
+    scheduleView: 'list',
     activePlan  : 'a',
     plans: {
       a: { name:'Regular schedule',  shiftDefs:deepClone(DEFAULT_SHIFT_DEFS), pattern:deepClone(DEFAULT_PATTERN), assignments:{}, dayOverrides:{} },
@@ -595,6 +623,7 @@ function switchPlan(p) {
   openOnlyView = false;
   save();
   refreshDays();
+  selectedDayIdx = defaultSelectedDay();
   updatePlanUI();
   renderShiftTemplateEditor();
   renderPatternEditor();
@@ -733,8 +762,8 @@ function assign(dateKey, shiftId, value) {
 }
 
 function rerenderAfterAssignChange(dateKey) {
-  if (openOnlyView) {
-    // A day may appear/disappear from the filtered view — re-render the list
+  if (openOnlyView || state.scheduleView === 'calendar') {
+    // Filtered list or calendar cells may change — re-render the whole view
     renderSchedule();
   } else {
     const idx = DAYS.findIndex(d => d.dateKey === dateKey);
@@ -827,6 +856,7 @@ function onPeriodChanged() {
   applyPresetsToPlan(state, state.plans.b);
   save();
   openOnlyView = false;
+  selectedDayIdx = defaultSelectedDay();
   updateHeader();
   renderSchedule();
   renderText();
@@ -1127,7 +1157,39 @@ function removeCaregiver(name) {
 function dayOpenCount(i) { return neededShifts(i).length - coveredCount(i); }
 function dayNeedsAttention(i) { return dayOpenCount(i) > 0 || conflictCount(i) > 0; }
 
+function setScheduleView(v) {
+  state.scheduleView = v === 'calendar' ? 'calendar' : 'list';
+  openOnlyView = false;
+  save();
+  renderSchedule();
+}
+
+function updateViewButtons() {
+  ['list','calendar'].forEach(v => {
+    const b = document.getElementById('viewBtn-' + v);
+    if (b && b.classList) b.classList[state.scheduleView === v ? 'add' : 'remove']('active');
+  });
+}
+
+// Select today when it's inside the period, otherwise the first day
+function defaultSelectedDay() {
+  const today = toDateKey(new Date());
+  const i = DAYS.findIndex(d => d.dateKey === today);
+  return i >= 0 ? i : 0;
+}
+
+function selectDay(i) {
+  selectedDayIdx = i;
+  renderSchedule();
+}
+
 function renderSchedule() {
+  updateViewButtons();
+  if (state.scheduleView === 'calendar') {
+    renderCalendar();
+    updateSummary();
+    return;
+  }
   const html = DAYS.map((day, i) => {
     if (openOnlyView && !dayNeedsAttention(i)) return '';
     return renderDay(day, i);
@@ -1135,6 +1197,31 @@ function renderSchedule() {
   document.getElementById('schedule').innerHTML =
     html || '<div class="card" style="text-align:center;color:var(--green-fg);font-weight:700;">✓ Nothing needs attention</div>';
   updateSummary();
+}
+
+function renderCalendar() {
+  if (selectedDayIdx < 0 || selectedDayIdx >= DAYS.length) selectedDayIdx = 0;
+  const headers = ['Su','Mo','Tu','We','Th','Fr','Sa'].map(h => `<div class="cal-head">${h}</div>`).join('');
+  const lead  = DAYS[0].dow;
+  const blank = '<div class="cal-cell cal-blank"></div>';
+  const blanksLead = blank.repeat(lead);
+  const cells = DAYS.map((day, i) => {
+    const open = dayOpenCount(i), conf = conflictCount(i), cov = coveredCount(i);
+    const cls  = open > 0 ? (cov === 0 ? 'cal-red' : 'cal-yellow') : (conf > 0 ? 'cal-yellow' : 'cal-green');
+    const d    = new Date(day.dateKey + 'T12:00:00');
+    const num  = d.getDate();
+    const monthTag = (i === 0 || num === 1)
+      ? `<span class="cal-month">${d.toLocaleDateString('en-US',{month:'short'})}</span>` : '';
+    const sub = open > 0 ? `${open} open` : (conf > 0 ? '⚠ away' : '✓');
+    return `<button class="cal-cell ${cls} ${i === selectedDayIdx ? 'cal-selected' : ''}" onclick="selectDay(${i})" title="${day.date}">
+      ${monthTag}<span class="cal-num">${num}</span><span class="cal-sub">${sub}</span></button>`;
+  }).join('');
+  const trail = (7 - ((lead + DAYS.length) % 7)) % 7;
+  const blanksTrail = blank.repeat(trail);
+  document.getElementById('schedule').innerHTML = `
+    <div class="card cal-card"><div class="cal-grid">${headers}${blanksLead}${cells}${blanksTrail}</div></div>
+    <div class="cal-detail-label">Tap a day above — here's what it looks like:</div>
+    ${renderDay(DAYS[selectedDayIdx], selectedDayIdx)}`;
 }
 
 function renderDay(day, i) {
@@ -1305,9 +1392,10 @@ function updateSummary() {
       <div class="banner banner-open">
         <div class="banner-big">${bigParts.join(' · ')}</div>
         <div class="banner-small">${covered} of ${total} covered so far.${conflicts ? ' Yellow shifts have someone who is marked away.' : ''}${open ? ' Open shifts are red below.' : ''}</div>
+        ${state.scheduleView === 'list' ? `
         <button class="banner-btn ${openOnlyView?'showing-all':''}" onclick="toggleOpenOnly()">
           ${openOnlyView ? 'Show all days again' : 'Show just the days that need help'}
-        </button>
+        </button>` : ''}
       </div>`;
   }
 }
@@ -1503,6 +1591,7 @@ function esc(s) {
 // ═══════════════════════════════════════════════════════════════════
 
 refreshDays();
+selectedDayIdx = defaultSelectedDay();
 updateHeader();
 updatePlanUI();
 renderCaregivers();
