@@ -169,6 +169,10 @@
     .pattern-fill select{flex:1;min-width:150px;border:1.5px solid var(--border);border-radius:10px;padding:9px 11px;background:white;}
     .pattern-note{font-size:.8rem;color:var(--muted);font-style:italic;}
 
+    /* ── Notes ── */
+    .notes-area{width:100%;border:1.5px solid var(--border);border-radius:11px;padding:12px 13px;background:#fffdf5;min-height:84px;resize:vertical;line-height:1.5;color:var(--text);}
+    .notes-area:focus{border-color:var(--blue);outline:none;}
+
     /* ── Toast ── */
     #toast{position:fixed;bottom:calc(84px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#1e293b;color:white;padding:9px 20px;border-radius:22px;font-size:.85rem;font-weight:700;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60;white-space:nowrap;}
     #toast.show{opacity:.93;}
@@ -209,6 +213,14 @@
     </div>
 
     <div id="summaryBar" style="margin-top:14px;"></div>
+
+    <div class="card">
+      <div class="card-title">📝 Notes</div>
+      <div class="card-help">Reminders, vacations, preferences — anything to keep in mind. Saved automatically and shown on both schedules.</div>
+      <textarea class="notes-area" id="notesArea" rows="3"
+                placeholder="e.g. Carol away Aug 8–15 · ask Patty about Thursdays"
+                oninput="onNotesInput(this.value)" onchange="save()"></textarea>
+    </div>
 
     <div id="schedule"></div>
 
@@ -455,6 +467,7 @@ function loadState() {
       if (!s.startDate)    s.startDate    = '2026-06-24';
       if (typeof s.signoff     !== 'string')  s.signoff     = '';
       if (typeof s.msgOpenOnly !== 'boolean') s.msgOpenOnly = false;
+      if (typeof s.notes       !== 'string')  s.notes       = '';
       return s;
     }
   } catch(_) {}
@@ -464,6 +477,7 @@ function loadState() {
     startDate   : '2026-06-24',
     signoff     : '',
     msgOpenOnly : false,
+    notes       : '',
     activePlan  : 'a',
     plans: {
       a: { name:'Regular schedule',  shiftDefs:deepClone(DEFAULT_SHIFT_DEFS), pattern:deepClone(DEFAULT_PATTERN), assignments:{}, dayOverrides:{} },
@@ -1145,6 +1159,10 @@ function onSignoffInput(value) {
   renderPersonText();
 }
 
+function onNotesInput(value) {
+  state.notes = value;
+}
+
 function onMsgOpenOnlyToggle(checked) {
   state.msgOpenOnly = checked;
   save();
@@ -1322,6 +1340,8 @@ const signoffEl = document.getElementById('signoffInput');
 if (signoffEl) signoffEl.value = state.signoff;
 const openOnlyEl = document.getElementById('msgOpenOnly');
 if (openOnlyEl) openOnlyEl.checked = state.msgOpenOnly;
+const notesEl = document.getElementById('notesArea');
+if (notesEl) notesEl.value = state.notes;
 
 renderText();
 refreshCaregiverPick();
