@@ -174,6 +174,22 @@
     .pattern-fill select{flex:1;min-width:150px;border:1.5px solid var(--border);border-radius:10px;padding:9px 11px;background:white;}
     .pattern-note{font-size:.8rem;color:var(--muted);font-style:italic;}
 
+    /* ── Away / vacation (LOA) ── */
+    .loa-row{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--gray-bg);}
+    .loa-row:last-of-type{border-bottom:none;}
+    .loa-who{font-weight:800;min-width:70px;}
+    .loa-when{flex:1;font-size:.9rem;color:var(--muted);font-weight:600;}
+    .loa-del{background:none;border:none;cursor:pointer;color:var(--muted);font-size:1.25rem;padding:2px 8px;line-height:1;}
+    .loa-del:hover{color:var(--red-fg);}
+    .loa-empty{font-size:.85rem;color:var(--muted);font-style:italic;padding:4px 0 8px;}
+    .loa-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;}
+    .loa-form select,.loa-form input[type=date]{border:1.5px solid var(--border);border-radius:10px;padding:10px;background:white;color:var(--text);}
+    .loa-form select{flex:1;min-width:120px;}
+    .loa-form .loa-to{font-size:.85rem;color:var(--muted);font-weight:600;}
+    .shift-conflict{background:#fefce8;border-left-color:#eab308;}
+    .shift-conflict .shift-select{border-color:#fde047;color:var(--yellow-fg);}
+    .conflict-note{font-size:.8rem;color:var(--yellow-fg);font-weight:700;margin-top:7px;}
+
     /* ── Notes ── */
     .notes-area{width:100%;border:1.5px solid var(--border);border-radius:11px;padding:12px 13px;background:#fffdf5;min-height:84px;resize:vertical;line-height:1.5;color:var(--text);}
     .notes-area:focus{border-color:var(--blue);outline:none;}
@@ -287,6 +303,19 @@
       <div class="add-row">
         <input type="text" id="newName" placeholder="Type a name…" />
         <button class="btn" onclick="addCaregiver()">Add</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🏖 Away / vacation</div>
+      <div class="card-help">If a caregiver will be away, add it here. Their name is grayed out in the day pickers for those dates (on both schedules), and any shift they already had shows a warning so you can find a replacement.</div>
+      <div id="loaList"></div>
+      <div class="loa-form">
+        <select id="loaName"><option value="">— who —</option></select>
+        <input type="date" id="loaStart" />
+        <span class="loa-to">to</span>
+        <input type="date" id="loaEnd" />
+        <button class="btn btn-sm" onclick="addLoa()">Add</button>
       </div>
     </div>
 
@@ -506,6 +535,7 @@ function loadState() {
       if (typeof s.signoff     !== 'string')  s.signoff     = '';
       if (typeof s.msgOpenOnly !== 'boolean') s.msgOpenOnly = false;
       if (typeof s.notes       !== 'string')  s.notes       = '';
+      if (!Array.isArray(s.loa))              s.loa         = [];
       return s;
     }
   } catch(_) {}
@@ -516,6 +546,7 @@ function loadState() {
     signoff     : '',
     msgOpenOnly : false,
     notes       : '',
+    loa         : [],
     activePlan  : 'a',
     plans: {
       a: { name:'Regular schedule',  shiftDefs:deepClone(DEFAULT_SHIFT_DEFS), pattern:deepClone(DEFAULT_PATTERN), assignments:{}, dayOverrides:{} },
@@ -639,7 +670,7 @@ function addDaysToKey(dateKey, n) {
 // All keyed by shift ids, so they no-op on plans without those shifts.
 // ═══════════════════════════════════════════════════════════════════
 
-function applyPresets(pl, days) {
+function applyPresets(pl, days, loa) {
   const hasOvernight = pl.shiftDefs.some(s => s.id === 'overnight');
   days.forEach(day => {
     const hist = HISTORICAL_WEEKDAY_SHIFTS[day.dow];
@@ -648,14 +679,15 @@ function applyPresets(pl, days) {
         if (!shiftAppliesTo(s, day.dow)) return;
         if (s.id === 'afternoon' && !day.afternoonNeeded) return;
         const k = aKey(day.dateKey, s.id);
-        if (!pl.assignments[k] && hist[s.id]) pl.assignments[k] = hist[s.id];
+        if (!pl.assignments[k] && hist[s.id] && !isAwayIn(loa, hist[s.id], day.dateKey))
+          pl.assignments[k] = hist[s.id];
       });
     }
-    if (hasOvernight && isCarolOvernightDate(day.dateKey)) {
+    if (hasOvernight && isCarolOvernightDate(day.dateKey) && !isAwayIn(loa, 'Carol', day.dateKey)) {
       const k = aKey(day.dateKey, 'overnight');
       if (!pl.assignments[k]) pl.assignments[k] = 'Carol';
     }
-    if (!day.preset) return;
+    if (!day.preset || isAwayIn(loa, day.preset, day.dateKey)) return;
     pl.shiftDefs.forEach(s => {
       if (!shiftAppliesTo(s, day.dow)) return;
       if (s.id === 'afternoon' && !day.afternoonNeeded) return;
@@ -665,17 +697,17 @@ function applyPresets(pl, days) {
   });
 }
 
-function applyPresetsForce(pl, days) {
+function applyPresetsForce(pl, days, loa) {
   const keys = new Set(days.map(d => d.dateKey));
   for (const k in pl.assignments) {
     if (keys.has(k.split('|')[0])) delete pl.assignments[k];
   }
-  applyPresets(pl, days);
+  applyPresets(pl, days, loa);
 }
 
 function applyPresetsToPlan(st, pl) {
   const days = generateDays(st.startDate, pl.pattern);
-  applyPresets(pl, days);
+  applyPresets(pl, days, st.loa);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -684,6 +716,13 @@ function applyPresetsToPlan(st, pl) {
 
 function aKey(dateKey, shiftId) { return `${dateKey}|${shiftId}`; }
 function getAssigned(dateKey, shiftId) { return plan().assignments[aKey(dateKey, shiftId)] || ''; }
+
+// Away / vacation checks. isAwayIn is pure (usable during loadState);
+// isAway is the everyday wrapper over the saved list.
+function isAwayIn(loa, name, dateKey) {
+  return (loa || []).some(l => l.name === name && l.start <= dateKey && dateKey <= l.end);
+}
+function isAway(name, dateKey) { return isAwayIn(state.loa, name, dateKey); }
 
 function assign(dateKey, shiftId, value) {
   const k = aKey(dateKey, shiftId);
@@ -983,12 +1022,56 @@ function onPatternPreset(dow, value) {
 function confirmResetToPattern() {
   if (!confirm(`Clear every shift in "${plan().name}" for these two weeks and re-fill it from "A normal week"?\n\nAnything you changed by hand will be lost. The other schedule is not affected.`)) return;
   refreshDays();
-  applyPresetsForce(plan(), DAYS);
+  applyPresetsForce(plan(), DAYS, state.loa);
   save();
   openOnlyView = false;
   renderSchedule();
   renderText();
   renderPersonText();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Away / vacation editor (Set-Up tab, shared by both plans)
+// ═══════════════════════════════════════════════════════════════════
+
+function renderLoaEditor() {
+  const listEl = document.getElementById('loaList');
+  if (!listEl) return;
+  const fmt = k => new Date(k + 'T12:00:00').toLocaleDateString('en-US',{ month:'short', day:'numeric', year:'numeric' });
+  const rows = [...state.loa].sort((x,y) => x.start < y.start ? -1 : 1).map(l => `
+    <div class="loa-row">
+      <span class="loa-who">${esc(l.name)}</span>
+      <span class="loa-when">${fmt(l.start)} – ${fmt(l.end)}</span>
+      <button class="loa-del" onclick="removeLoa('${esc(l.id)}')" title="Remove this time away">×</button>
+    </div>`).join('');
+  listEl.innerHTML = rows || '<div class="loa-empty">Nobody is marked away.</div>';
+  const sel = document.getElementById('loaName');
+  if (sel) {
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— who —</option>' +
+      state.caregivers.map(c => `<option value="${esc(c)}" ${c===cur?'selected':''}>${esc(c)}</option>`).join('');
+  }
+}
+
+function addLoa() {
+  const name  = document.getElementById('loaName').value;
+  let   start = document.getElementById('loaStart').value;
+  let   end   = document.getElementById('loaEnd').value;
+  if (!name || !start || !end) { alert('Pick a caregiver and both dates first.'); return; }
+  if (end < start) { const t = start; start = end; end = t; }
+  state.loa.push({ id:'loa-' + Date.now(), name, start, end });
+  save();
+  document.getElementById('loaStart').value = '';
+  document.getElementById('loaEnd').value   = '';
+  renderLoaEditor();
+  renderSchedule();
+}
+
+function removeLoa(id) {
+  state.loa = state.loa.filter(l => l.id !== id);
+  save();
+  renderLoaEditor();
+  renderSchedule();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1011,6 +1094,7 @@ function addCaregiver() {
     save();
     renderCaregivers();
     renderPatternEditor();
+    renderLoaEditor();
     renderSchedule();
     renderText();
     refreshCaregiverPick();
@@ -1022,6 +1106,7 @@ function addCaregiver() {
 function removeCaregiver(name) {
   if (!confirm(`Remove "${name}" from the caregiver list?\nTheir shifts in both schedules will be marked as needing someone.`)) return;
   state.caregivers = state.caregivers.filter(c => c !== name);
+  state.loa = state.loa.filter(l => l.name !== name);
   for (const pk in state.plans) {
     const as = state.plans[pk].assignments;
     for (const k in as) { if (as[k] === name) delete as[k]; }
@@ -1029,6 +1114,7 @@ function removeCaregiver(name) {
   save();
   renderCaregivers();
   renderPatternEditor();
+  renderLoaEditor();
   renderSchedule();
   renderText();
   refreshCaregiverPick();
@@ -1039,10 +1125,11 @@ function removeCaregiver(name) {
 // ═══════════════════════════════════════════════════════════════════
 
 function dayOpenCount(i) { return neededShifts(i).length - coveredCount(i); }
+function dayNeedsAttention(i) { return dayOpenCount(i) > 0 || conflictCount(i) > 0; }
 
 function renderSchedule() {
   const html = DAYS.map((day, i) => {
-    if (openOnlyView && dayOpenCount(i) === 0) return '';
+    if (openOnlyView && !dayNeedsAttention(i)) return '';
     return renderDay(day, i);
   }).join('');
   document.getElementById('schedule').innerHTML =
@@ -1096,10 +1183,12 @@ function renderShiftRow(day, shift, dayIdx) {
   }
 
   const assigned = getAssigned(day.dateKey, shift.id);
-  const cls      = assigned ? 'shift-covered' : 'shift-needed';
-  const opts     = ['', ...state.caregivers].map(c =>
-    `<option value="${esc(c)}" ${c===assigned?'selected':''}>${c||'— Who can cover this? —'}</option>`
-  ).join('');
+  const conflict = assigned && isAway(assigned, day.dateKey);
+  const cls      = assigned ? (conflict ? 'shift-conflict' : 'shift-covered') : 'shift-needed';
+  const opts     = ['', ...state.caregivers].map(c => {
+    const away = c && isAway(c, day.dateKey);
+    return `<option value="${esc(c)}" ${c===assigned?'selected':''} ${away?'disabled':''}>${c ? c + (away?' (away)':'') : '— Who can cover this? —'}</option>`;
+  }).join('');
 
   const rightBtn = !shift._isExtra
     ? `<button class="shift-hide-btn" onclick="hideShift('${day.dateKey}','${shift.id}')" title="Remove this shift from this day only">Hide</button>`
@@ -1114,6 +1203,7 @@ function renderShiftRow(day, shift, dayIdx) {
         ${rightBtn}
       </div>
       <select class="shift-select" onchange="assign('${day.dateKey}','${shift.id}',this.value)">${opts}</select>
+      ${conflict ? `<div class="conflict-note">⚠ ${esc(assigned)} is marked away this day — please pick someone else.</div>` : ''}
     </div>`;
 }
 
@@ -1161,19 +1251,29 @@ function coveredCount(dayIdx) {
   return neededShifts(dayIdx).filter(s => getAssigned(day.dateKey, s.id)).length;
 }
 
+function conflictCount(dayIdx) {
+  const day = DAYS[dayIdx];
+  return neededShifts(dayIdx).filter(s => {
+    const a = getAssigned(day.dateKey, s.id);
+    return a && isAway(a, day.dateKey);
+  }).length;
+}
+
 function badgeText(dayIdx) {
   const need = neededShifts(dayIdx).length;
   const cov  = coveredCount(dayIdx);
-  if (cov === need) return '✓ Covered';
-  return `${need - cov} open`;
+  if (cov < need) return `${need - cov} open`;
+  if (conflictCount(dayIdx) > 0) return '⚠ away';
+  return '✓ Covered';
 }
 
 function badgeClass(dayIdx) {
   const need = neededShifts(dayIdx).length;
   const cov  = coveredCount(dayIdx);
-  if (cov === 0)    return 'badge-red';
-  if (cov === need) return 'badge-green';
-  return 'badge-yellow';
+  if (cov === 0 && need > 0)     return 'badge-red';
+  if (cov < need)                return 'badge-yellow';
+  if (conflictCount(dayIdx) > 0) return 'badge-yellow';
+  return 'badge-green';
 }
 
 function toggleOpenOnly() {
@@ -1182,12 +1282,12 @@ function toggleOpenOnly() {
 }
 
 function updateSummary() {
-  let total = 0, covered = 0;
-  DAYS.forEach((_, i) => { total += neededShifts(i).length; covered += coveredCount(i); });
+  let total = 0, covered = 0, conflicts = 0;
+  DAYS.forEach((_, i) => { total += neededShifts(i).length; covered += coveredCount(i); conflicts += conflictCount(i); });
   const open = total - covered;
   const bar  = document.getElementById('summaryBar');
   if (!bar) return;
-  if (open === 0) {
+  if (open === 0 && conflicts === 0) {
     const wasFiltered = openOnlyView;
     openOnlyView = false;
     bar.innerHTML = `
@@ -1198,10 +1298,13 @@ function updateSummary() {
     // Leaving the "open shifts only" view: show the full list again
     if (wasFiltered) renderSchedule();
   } else {
+    const bigParts = [];
+    if (open)      bigParts.push(`${open} shift${open===1?'':'s'} still need${open===1?'s':''} someone`);
+    if (conflicts) bigParts.push(`${conflicts} need${conflicts===1?'s':''} a replacement (caregiver away)`);
     bar.innerHTML = `
       <div class="banner banner-open">
-        <div class="banner-big">${open} shift${open===1?'':'s'} still need${open===1?'s':''} someone</div>
-        <div class="banner-small">${covered} of ${total} covered so far. Open shifts are red below.</div>
+        <div class="banner-big">${bigParts.join(' · ')}</div>
+        <div class="banner-small">${covered} of ${total} covered so far.${conflicts ? ' Yellow shifts have someone who is marked away.' : ''}${open ? ' Open shifts are red below.' : ''}</div>
         <button class="banner-btn ${openOnlyView?'showing-all':''}" onclick="toggleOpenOnly()">
           ${openOnlyView ? 'Show all days again' : 'Show just the days that need help'}
         </button>
@@ -1403,6 +1506,7 @@ refreshDays();
 updateHeader();
 updatePlanUI();
 renderCaregivers();
+renderLoaEditor();
 renderShiftTemplateEditor();
 renderPatternEditor();
 renderSchedule();
