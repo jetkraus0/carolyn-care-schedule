@@ -12,6 +12,7 @@
       --yellow-bg:#fef9c3;--yellow-fg:#a16207;
       --gray-bg:#f1f5f9;  --gray-fg:#64748b;
       --blue:#3b82f6;     --blue-dark:#1d4ed8;
+      --purple:#7c3aed;   --purple-dark:#6d28d9;
       --teal:#10b981;     --teal-dark:#059669;
       --text:#1e293b;     --muted:#5b6b7f;
       --border:#dbe3ec;   --card:#ffffff;
@@ -25,8 +26,18 @@
 
     /* ── Header ── */
     .app-header{background:linear-gradient(135deg,#1e40af,#1d4ed8);color:white;padding:22px 16px 18px;text-align:center;}
+    body.plan-b .app-header{background:linear-gradient(135deg,#5b21b6,#7c3aed);}
     .app-header h1{font-size:1.45rem;font-weight:800;margin-bottom:3px;}
     .app-header p{font-size:.95rem;opacity:.9;}
+
+    /* ── Plan switcher ── */
+    .plan-switch{display:flex;background:#dbe3ec;border-radius:14px;padding:4px;gap:4px;margin-bottom:8px;}
+    .plan-btn{flex:1;border:none;border-radius:11px;padding:11px 8px;font-size:.9rem;font-weight:800;cursor:pointer;background:none;color:var(--muted);min-height:46px;}
+    .plan-btn.active{background:white;color:var(--blue-dark);box-shadow:0 1px 3px rgba(0,0,0,.15);}
+    body.plan-b .plan-btn.active{color:var(--purple-dark);}
+    .plan-caption{font-size:.8rem;color:var(--purple-dark);font-weight:700;text-align:center;margin-bottom:12px;display:none;}
+    .plan-edit-note{display:block;margin-top:5px;font-weight:700;color:var(--blue-dark);}
+    body.plan-b .plan-edit-note{color:var(--purple-dark);}
 
     /* ── Layout / tabs ── */
     .main{max-width:640px;margin:0 auto;padding:16px 14px 120px;}
@@ -36,6 +47,7 @@
     .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 0 8px;background:none;border:none;font-size:.8rem;font-weight:700;color:var(--muted);cursor:pointer;}
     .tab .tab-icon{font-size:1.5rem;line-height:1;}
     .tab.active{color:var(--blue-dark);}
+    body.plan-b .tab.active{color:var(--purple-dark);}
     .tab.active .tab-icon{transform:scale(1.08);}
 
     .card{background:var(--card);border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.07);}
@@ -77,7 +89,7 @@
     .shift-row{border-radius:13px;padding:11px 13px;margin-bottom:9px;border-left:6px solid transparent;}
     .shift-needed{background:#fef2f2;border-left-color:#ef4444;}
     .shift-covered{background:#f0fdf4;border-left-color:#22c55e;}
-    .shift-closed{background:var(--gray-bg);border-left-color:#cbd5e1;display:flex;align-items:center;gap:9px;}
+    .shift-closed{background:var(--gray-bg);border-left-color:#cbd5e1;display:flex;align-items:center;gap:9px;border-radius:13px;padding:11px 13px;margin-bottom:9px;}
     .shift-top{display:flex;align-items:center;gap:9px;margin-bottom:8px;}
     .shift-icon{font-size:1.05rem;flex-shrink:0;}
     .shift-time{font-size:1rem;font-weight:800;}
@@ -173,6 +185,13 @@
 
 <main class="main">
 
+  <!-- ── Plan switcher (visible on every tab) ── -->
+  <div class="plan-switch">
+    <button class="plan-btn active" id="planBtn-a" onclick="switchPlan('a')">Regular schedule</button>
+    <button class="plan-btn" id="planBtn-b" onclick="switchPlan('b')">If Bob stays over</button>
+  </div>
+  <div class="plan-caption" id="planCaption"></div>
+
   <!-- ════════ SCHEDULE TAB ════════ -->
   <section id="panel-schedule" class="panel active">
 
@@ -201,7 +220,9 @@
 
     <div class="card">
       <div class="card-title">Send the schedule by text</div>
-      <div class="card-help">Tap a green <b>Copy</b> button, then open your text messages and paste it in.</div>
+      <div class="card-help">Tap a green <b>Copy</b> button, then open your text messages and paste it in.
+        <span class="plan-edit-note" id="planNoteMsg"></span>
+      </div>
       <div class="signas-row">
         <label for="signoffInput">Sign messages as:</label>
         <input type="text" id="signoffInput" placeholder="e.g. Kathy"
@@ -244,7 +265,7 @@
 
     <div class="card">
       <div class="card-title">👥 Caregivers</div>
-      <div class="card-help">These names appear in every shift's picker.</div>
+      <div class="card-help">These names appear in every shift's picker, on both schedules.</div>
       <div class="chips" id="chips"></div>
       <div class="add-row">
         <input type="text" id="newName" placeholder="Type a name…" />
@@ -254,19 +275,25 @@
 
     <div class="card">
       <div class="card-title">🕐 Shift times</div>
-      <div class="card-help">These are the shifts that appear on every day. Change a time here and it changes everywhere.</div>
+      <div class="card-help">These are the shifts that appear on every day. Change a time here and it changes everywhere.
+        <span class="plan-edit-note" id="planNoteShifts"></span>
+      </div>
       <div id="shiftTemplateEditor"></div>
     </div>
 
     <div class="card">
       <div class="card-title">📆 A normal week</div>
-      <div class="card-help">How a typical week works. New schedules start out filled in from this — you can always change any single day afterward on the Schedule page.</div>
+      <div class="card-help">How a typical week works. New schedules start out filled in from this — you can always change any single day afterward on the Schedule page.
+        <span class="plan-edit-note" id="planNoteWeek"></span>
+      </div>
       <div id="patternEditor"></div>
     </div>
 
     <div class="card">
       <div class="card-title">↺ Start this schedule over</div>
-      <div class="card-help">Clears every shift in the current two weeks and fills them back in from "A normal week" above. Use this if things got messy.</div>
+      <div class="card-help">Clears every shift in the current two weeks and fills them back in from "A normal week" above. Use this if things got messy.
+        <span class="plan-edit-note" id="planNoteReset"></span>
+      </div>
       <button class="btn btn-outline btn-block" onclick="confirmResetToPattern()">Re-fill schedule from the normal week</button>
     </div>
 
@@ -285,7 +312,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════════
-// Default constants (used only for fresh state)
+// Default constants (used only for fresh state / new plans)
 // ═══════════════════════════════════════════════════════════════════
 
 // dayTimes = per-weekday time overrides keyed by day-of-week (0=Sun … 6=Sat).
@@ -308,9 +335,28 @@ const DEFAULT_PATTERN = {
   6:{ afternoonNeeded:true,  preset:'Deddeh' }, // Sat
 };
 
+// Backup plan: Bob stays with Carolyn, so only three 4-hour caregiver
+// slots are needed, the same every day of the week. Starts unassigned.
+const BOB_SHIFT_DEFS = [
+  { id:'bob-early',   icon:'🌅', label:'Early',   time:'5:00a – 9:00a',  dayTimes:{} },
+  { id:'bob-midday',  icon:'☀️', label:'Midday',  time:'11:00a – 3:00p', dayTimes:{} },
+  { id:'bob-evening', icon:'🌙', label:'Evening', time:'5:00p – 9:00p',  dayTimes:{} },
+];
+
+const BOB_PATTERN = {
+  0:{ afternoonNeeded:true, preset:null },
+  1:{ afternoonNeeded:true, preset:null },
+  2:{ afternoonNeeded:true, preset:null },
+  3:{ afternoonNeeded:true, preset:null },
+  4:{ afternoonNeeded:true, preset:null },
+  5:{ afternoonNeeded:true, preset:null },
+  6:{ afternoonNeeded:true, preset:null },
+};
+
 const DEFAULT_CAREGIVERS = ['Marty','Janice','Carol','Renee','Brad','Dean','Kim','Patty','Deddeh'];
 
-// Historical weekday shift defaults (from recurring calendar events May–June 2026)
+// Historical weekday shift defaults (from recurring calendar events May–June 2026).
+// Keyed by shift id, so they only ever apply to plans that contain those ids.
 const HISTORICAL_WEEKDAY_SHIFTS = {
   1:{ evening:'Renee' },
   2:{ evening:'Renee' },
@@ -341,6 +387,9 @@ let state = loadState();
 let DAYS  = [];
 let openOnlyView = false; // schedule tab filter (not saved — resets each visit)
 
+// The active plan: every schedule read/write goes through here.
+function plan() { return state.plans[state.activePlan]; }
+
 // ═══════════════════════════════════════════════════════════════════
 // Persistence  (migrate forward; never wipe existing data)
 // ═══════════════════════════════════════════════════════════════════
@@ -350,34 +399,62 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const s = JSON.parse(raw);
-      // Migrate: add new fields if missing
-      if (!s.shiftDefs)    s.shiftDefs    = deepClone(DEFAULT_SHIFT_DEFS);
-      // Migrate: per-weekday time overrides.
-      // Mon/Tue/Thu/Fri evenings run 5:00p–8:30p; Wednesday ends at 7:30p.
-      // Only rewrites untouched defaults (including a briefly-shipped
-      // reversed version) — hand-edited times are left alone.
-      s.shiftDefs.forEach(d => { if (!d.dayTimes) d.dayTimes = {}; });
-      const ev = s.shiftDefs.find(d => d.id === 'evening');
-      if (ev && ev.time === '5:00p – 7:30p' && [undefined, '5:30p – 8:30p'].includes(ev.dayTimes[3])) {
-        ev.time = '5:00p – 8:30p';
-        ev.dayTimes[3] = '5:00p – 7:30p';
+
+      // Migrate: two schedule plans (regular + "if Bob stays over" backup).
+      // Pre-plan saves kept shifts/pattern/assignments at the top level —
+      // move them into plans.a untouched and seed plans.b with Bob's slots.
+      if (!s.plans) {
+        s.plans = {
+          a: {
+            name        : 'Regular schedule',
+            shiftDefs   : s.shiftDefs    || deepClone(DEFAULT_SHIFT_DEFS),
+            pattern     : s.pattern      || deepClone(DEFAULT_PATTERN),
+            assignments : s.assignments  || {},
+            dayOverrides: s.dayOverrides || {},
+          },
+          b: {
+            name        : 'If Bob stays over',
+            shiftDefs   : deepClone(BOB_SHIFT_DEFS),
+            pattern     : deepClone(BOB_PATTERN),
+            assignments : {},
+            dayOverrides: {},
+          },
+        };
+        delete s.shiftDefs; delete s.pattern; delete s.assignments; delete s.dayOverrides;
       }
-      const on = s.shiftDefs.find(d => d.id === 'overnight');
-      if (on && on.time === '7:30p – 8:30a' && [undefined, '8:30p – 8:30a'].includes(on.dayTimes[3])) {
-        on.time = '8:30p – 8:30a';
-        on.dayTimes[3] = '7:30p – 8:30a';
+      if (s.activePlan !== 'a' && s.activePlan !== 'b') s.activePlan = 'a';
+
+      for (const pk in s.plans) {
+        const pl = s.plans[pk];
+        if (!pl.name)         pl.name         = pk === 'a' ? 'Regular schedule' : 'If Bob stays over';
+        if (!pl.shiftDefs)    pl.shiftDefs    = deepClone(pk === 'a' ? DEFAULT_SHIFT_DEFS : BOB_SHIFT_DEFS);
+        if (!pl.pattern)      pl.pattern      = deepClone(pk === 'a' ? DEFAULT_PATTERN : BOB_PATTERN);
+        if (!pl.assignments)  pl.assignments  = {};
+        if (!pl.dayOverrides) pl.dayOverrides = {};
+        pl.shiftDefs.forEach(d => { if (!d.dayTimes) d.dayTimes = {}; });
+        // Fix a briefly-shipped reversed version of the evening times.
+        // Mon/Tue/Thu/Fri evenings run 5:00p–8:30p; Wednesday ends at 7:30p.
+        // Only rewrites untouched defaults — hand-edited times are left alone.
+        const ev = pl.shiftDefs.find(d => d.id === 'evening');
+        if (ev && ev.time === '5:00p – 7:30p' && [undefined, '5:30p – 8:30p'].includes(ev.dayTimes[3])) {
+          ev.time = '5:00p – 8:30p';
+          ev.dayTimes[3] = '5:00p – 7:30p';
+        }
+        const on = pl.shiftDefs.find(d => d.id === 'overnight');
+        if (on && on.time === '7:30p – 8:30a' && [undefined, '8:30p – 8:30a'].includes(on.dayTimes[3])) {
+          on.time = '8:30p – 8:30a';
+          on.dayTimes[3] = '7:30p – 8:30a';
+        }
+        // Ensure pattern keys are numbers
+        const p = {};
+        for (const k in pl.pattern) p[Number(k)] = pl.pattern[k];
+        pl.pattern = p;
       }
-      if (!s.dayOverrides) s.dayOverrides = {};
-      if (!s.assignments)  s.assignments  = {};
+
       if (!s.caregivers)   s.caregivers   = [...DEFAULT_CAREGIVERS];
       if (!s.startDate)    s.startDate    = '2026-06-24';
-      if (!s.pattern)      s.pattern      = deepClone(DEFAULT_PATTERN);
       if (typeof s.signoff     !== 'string')  s.signoff     = '';
       if (typeof s.msgOpenOnly !== 'boolean') s.msgOpenOnly = false;
-      // Ensure pattern keys are numbers
-      const p = {};
-      for (const k in s.pattern) p[Number(k)] = s.pattern[k];
-      s.pattern = p;
       return s;
     }
   } catch(_) {}
@@ -385,15 +462,16 @@ function loadState() {
   const st = {
     caregivers  : [...DEFAULT_CAREGIVERS],
     startDate   : '2026-06-24',
-    pattern     : deepClone(DEFAULT_PATTERN),
-    assignments : {},
-    shiftDefs   : deepClone(DEFAULT_SHIFT_DEFS),
-    dayOverrides: {},
     signoff     : '',
     msgOpenOnly : false,
+    activePlan  : 'a',
+    plans: {
+      a: { name:'Regular schedule',  shiftDefs:deepClone(DEFAULT_SHIFT_DEFS), pattern:deepClone(DEFAULT_PATTERN), assignments:{}, dayOverrides:{} },
+      b: { name:'If Bob stays over', shiftDefs:deepClone(BOB_SHIFT_DEFS),     pattern:deepClone(BOB_PATTERN),     assignments:{}, dayOverrides:{} },
+    },
   };
-  const days = generateDays(st.startDate, st.pattern);
-  applyPresets(st, days);
+  applyPresetsToPlan(st, st.plans.a);
+  applyPresetsToPlan(st, st.plans.b);
   return st;
 }
 
@@ -414,7 +492,7 @@ function showToast() {
 function deepClone(o) { return JSON.parse(JSON.stringify(o)); }
 
 // ═══════════════════════════════════════════════════════════════════
-// Tabs
+// Tabs & plan switching
 // ═══════════════════════════════════════════════════════════════════
 
 const TAB_IDS = ['schedule','messages','setup'];
@@ -426,6 +504,43 @@ function switchTab(name) {
     if (tab   && tab.classList)   tab.classList[t === name ? 'add' : 'remove']('active');
   });
   if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, 0);
+}
+
+function switchPlan(p) {
+  if (!state.plans[p] || state.activePlan === p) return;
+  state.activePlan = p;
+  openOnlyView = false;
+  save();
+  refreshDays();
+  updatePlanUI();
+  renderShiftTemplateEditor();
+  renderPatternEditor();
+  renderSchedule();
+  renderText();
+  renderPersonText();
+}
+
+function updatePlanUI() {
+  ['a','b'].forEach(p => {
+    const btn = document.getElementById('planBtn-' + p);
+    if (!btn) return;
+    if (state.plans[p] && state.plans[p].name) btn.textContent = state.plans[p].name;
+    if (btn.classList) btn.classList[state.activePlan === p ? 'add' : 'remove']('active');
+  });
+  if (document.body && document.body.classList)
+    document.body.classList[state.activePlan === 'b' ? 'add' : 'remove']('plan-b');
+  const cap = document.getElementById('planCaption');
+  if (cap) {
+    const isB = state.activePlan === 'b';
+    cap.textContent = isB ? 'This is the backup plan — your regular schedule is saved and untouched.' : '';
+    if (cap.style) cap.style.display = isB ? 'block' : 'none';
+  }
+  const notes = { planNoteMsg:'Messages come from: ', planNoteShifts:'These changes apply to: ',
+                  planNoteWeek:'These changes apply to: ', planNoteReset:'This clears: ' };
+  for (const id in notes) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = notes[id] + plan().name;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -457,7 +572,7 @@ function toDateKey(d) {
 }
 
 function refreshDays() {
-  DAYS = generateDays(state.startDate, state.pattern);
+  DAYS = generateDays(state.startDate, plan().pattern);
 }
 
 function addDaysToKey(dateKey, n) {
@@ -469,37 +584,44 @@ function addDaysToKey(dateKey, n) {
 // ═══════════════════════════════════════════════════════════════════
 // Preset application (soft: skip if slot already filled)
 // Priority: 1) historical weekday  2) Carol bi-weekly  3) day-level preset
+// All keyed by shift ids, so they no-op on plans without those shifts.
 // ═══════════════════════════════════════════════════════════════════
 
-function applyPresets(st, days) {
+function applyPresets(pl, days) {
+  const hasOvernight = pl.shiftDefs.some(s => s.id === 'overnight');
   days.forEach(day => {
     const hist = HISTORICAL_WEEKDAY_SHIFTS[day.dow];
     if (hist) {
-      st.shiftDefs.forEach(s => {
+      pl.shiftDefs.forEach(s => {
         if (s.id === 'afternoon' && !day.afternoonNeeded) return;
         const k = aKey(day.dateKey, s.id);
-        if (!st.assignments[k] && hist[s.id]) st.assignments[k] = hist[s.id];
+        if (!pl.assignments[k] && hist[s.id]) pl.assignments[k] = hist[s.id];
       });
     }
-    if (isCarolOvernightDate(day.dateKey)) {
+    if (hasOvernight && isCarolOvernightDate(day.dateKey)) {
       const k = aKey(day.dateKey, 'overnight');
-      if (!st.assignments[k]) st.assignments[k] = 'Carol';
+      if (!pl.assignments[k]) pl.assignments[k] = 'Carol';
     }
     if (!day.preset) return;
-    st.shiftDefs.forEach(s => {
+    pl.shiftDefs.forEach(s => {
       if (s.id === 'afternoon' && !day.afternoonNeeded) return;
       const k = aKey(day.dateKey, s.id);
-      if (!st.assignments[k]) st.assignments[k] = day.preset;
+      if (!pl.assignments[k]) pl.assignments[k] = day.preset;
     });
   });
 }
 
-function applyPresetsForce(st, days) {
+function applyPresetsForce(pl, days) {
   const keys = new Set(days.map(d => d.dateKey));
-  for (const k in st.assignments) {
-    if (keys.has(k.split('|')[0])) delete st.assignments[k];
+  for (const k in pl.assignments) {
+    if (keys.has(k.split('|')[0])) delete pl.assignments[k];
   }
-  applyPresets(st, days);
+  applyPresets(pl, days);
+}
+
+function applyPresetsToPlan(st, pl) {
+  const days = generateDays(st.startDate, pl.pattern);
+  applyPresets(pl, days);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -507,12 +629,12 @@ function applyPresetsForce(st, days) {
 // ═══════════════════════════════════════════════════════════════════
 
 function aKey(dateKey, shiftId) { return `${dateKey}|${shiftId}`; }
-function getAssigned(dateKey, shiftId) { return state.assignments[aKey(dateKey, shiftId)] || ''; }
+function getAssigned(dateKey, shiftId) { return plan().assignments[aKey(dateKey, shiftId)] || ''; }
 
 function assign(dateKey, shiftId, value) {
   const k = aKey(dateKey, shiftId);
-  if (value) state.assignments[k] = value;
-  else        delete state.assignments[k];
+  if (value) plan().assignments[k] = value;
+  else        delete plan().assignments[k];
   save();
   rerenderAfterAssignChange(dateKey);
 }
@@ -531,18 +653,18 @@ function rerenderAfterAssignChange(dateKey) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Day overrides: hide/restore global shifts + extra custom shifts
+// Day overrides: hide/restore plan shifts + extra custom shifts
 // ═══════════════════════════════════════════════════════════════════
 
 function getOverrides(dateKey) {
-  return state.dayOverrides[dateKey] || { hidden:[], extra:[] };
+  return plan().dayOverrides[dateKey] || { hidden:[], extra:[] };
 }
 
 function hideShift(dateKey, shiftId) {
   const ov = getOverrides(dateKey);
   if (!ov.hidden.includes(shiftId)) ov.hidden.push(shiftId);
-  state.dayOverrides[dateKey] = ov;
-  delete state.assignments[aKey(dateKey, shiftId)];
+  plan().dayOverrides[dateKey] = ov;
+  delete plan().assignments[aKey(dateKey, shiftId)];
   save();
   rerenderAfterAssignChange(dateKey);
 }
@@ -550,7 +672,7 @@ function hideShift(dateKey, shiftId) {
 function restoreShift(dateKey, shiftId) {
   const ov = getOverrides(dateKey);
   ov.hidden = ov.hidden.filter(id => id !== shiftId);
-  state.dayOverrides[dateKey] = ov;
+  plan().dayOverrides[dateKey] = ov;
   save();
   rerenderAfterAssignChange(dateKey);
 }
@@ -559,7 +681,7 @@ function addExtraShift(dateKey, label, time) {
   const ov = getOverrides(dateKey);
   const id = 'x-' + dateKey + '-' + Date.now();
   ov.extra.push({ id, label: label || 'Custom', icon:'➕', time: time || '' });
-  state.dayOverrides[dateKey] = ov;
+  plan().dayOverrides[dateKey] = ov;
   save();
   rerenderAfterAssignChange(dateKey);
 }
@@ -567,8 +689,8 @@ function addExtraShift(dateKey, label, time) {
 function removeExtraShift(dateKey, shiftId) {
   const ov = getOverrides(dateKey);
   ov.extra = ov.extra.filter(s => s.id !== shiftId);
-  delete state.assignments[aKey(dateKey, shiftId)];
-  state.dayOverrides[dateKey] = ov;
+  delete plan().assignments[aKey(dateKey, shiftId)];
+  plan().dayOverrides[dateKey] = ov;
   save();
   rerenderAfterAssignChange(dateKey);
 }
@@ -579,7 +701,7 @@ function getShiftsForDay(day) {
   const ov     = getOverrides(day.dateKey);
   const hidden = new Set(ov.hidden || []);
   return [
-    ...state.shiftDefs.map(s => ({
+    ...plan().shiftDefs.map(s => ({
       ...s,
       time: (s.dayTimes && s.dayTimes[day.dow]) || s.time,
       _isExtra: false,
@@ -595,22 +717,21 @@ function getShiftsForDay(day) {
 
 function shiftPeriod(dir) {
   state.startDate = addDaysToKey(state.startDate, dir * 14);
-  refreshDays();
-  applyPresets(state, DAYS);
-  save();
-  openOnlyView = false;
-  updateHeader();
-  renderSchedule();
-  renderText();
-  renderPersonText();
+  onPeriodChanged();
 }
 
 function onStartDateChange() {
   const val = document.getElementById('startDateInput').value;
   if (!val) return;
   state.startDate = val;
+  onPeriodChanged();
+}
+
+function onPeriodChanged() {
   refreshDays();
-  applyPresets(state, DAYS);
+  // Pre-fill the new dates in both plans from their own patterns
+  applyPresetsToPlan(state, state.plans.a);
+  applyPresetsToPlan(state, state.plans.b);
   save();
   openOnlyView = false;
   updateHeader();
@@ -630,7 +751,7 @@ function updateHeader() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Shift template editor (Set-Up tab)
+// Shift template editor (Set-Up tab, edits the active plan)
 // ═══════════════════════════════════════════════════════════════════
 
 function dayTimesSummary(s) {
@@ -640,7 +761,7 @@ function dayTimesSummary(s) {
 }
 
 function renderShiftTemplateEditor() {
-  const rows = state.shiftDefs.map((s, idx) => {
+  const rows = plan().shiftDefs.map((s, idx) => {
     const dayInputs = DOW_ORDER.map(dow => {
       const ovVal = (s.dayTimes || {})[dow] || '';
       return `
@@ -679,7 +800,7 @@ function renderShiftTemplateEditor() {
 }
 
 function updateShiftDef(idx, field, value) {
-  state.shiftDefs[idx][field] = value;
+  plan().shiftDefs[idx][field] = value;
   save();
   renderSchedule();
   renderText();
@@ -687,7 +808,7 @@ function updateShiftDef(idx, field, value) {
 }
 
 function updateShiftDayTime(idx, dow, inputEl) {
-  const s = state.shiftDefs[idx];
+  const s = plan().shiftDefs[idx];
   if (!s.dayTimes) s.dayTimes = {};
   const v = inputEl.value.trim();
   if (v) s.dayTimes[dow] = v;
@@ -702,11 +823,11 @@ function updateShiftDayTime(idx, dow, inputEl) {
 }
 
 function deleteShiftDef(idx) {
-  const id = state.shiftDefs[idx].id;
-  if (!confirm(`Delete the "${state.shiftDefs[idx].label}" shift from every day?`)) return;
-  state.shiftDefs.splice(idx, 1);
-  for (const k in state.assignments) {
-    if (k.split('|')[1] === id) delete state.assignments[k];
+  const id = plan().shiftDefs[idx].id;
+  if (!confirm(`Delete the "${plan().shiftDefs[idx].label}" shift from every day of "${plan().name}"?`)) return;
+  plan().shiftDefs.splice(idx, 1);
+  for (const k in plan().assignments) {
+    if (k.split('|')[1] === id) delete plan().assignments[k];
   }
   save();
   renderShiftTemplateEditor();
@@ -720,7 +841,7 @@ function addShiftDef() {
   const label = document.getElementById('newShiftLabel').value.trim() || 'Custom';
   const time  = document.getElementById('newShiftTime').value.trim()  || '';
   const id    = 'shift-' + Date.now();
-  state.shiftDefs.push({ id, icon, label, time, dayTimes:{} });
+  plan().shiftDefs.push({ id, icon, label, time, dayTimes:{} });
   save();
   renderShiftTemplateEditor();
   renderSchedule();
@@ -729,24 +850,29 @@ function addShiftDef() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Pattern editor (Set-Up tab)
+// Pattern editor (Set-Up tab, edits the active plan)
 // ═══════════════════════════════════════════════════════════════════
 
 function renderPatternEditor() {
+  // The day-program toggle only makes sense for plans that have the
+  // regular 1–5p afternoon shift.
+  const hasAfternoon = plan().shiftDefs.some(s => s.id === 'afternoon');
   const rows = DOW_ORDER.map(dow => {
-    const pat  = state.pattern[dow];
+    const pat  = plan().pattern[dow];
     const opts = ['', ...state.caregivers].map(c =>
       `<option value="${esc(c)}" ${(pat.preset||'')=== c?'selected':''}>${c||'Nobody — I\'ll pick each shift myself'}</option>`
     ).join('');
-    return `
-      <div class="pattern-row">
-        <div class="pattern-day">${DAY_NAMES[dow]}</div>
-        <div class="pattern-controls">
+    const afternoonRow = !hasAfternoon ? '' : `
           <label class="switch-row">
             <input type="checkbox" ${pat.afternoonNeeded?'checked':''} onchange="onPatternToggle(${dow},this.checked)" />
             Needs an afternoon caregiver (1–5p)
           </label>
-          ${pat.afternoonNeeded ? '' : '<div class="pattern-note">Carolyn is at her day program 1–5p — no afternoon shift shown.</div>'}
+          ${pat.afternoonNeeded ? '' : '<div class="pattern-note">Carolyn is at her day program 1–5p — no afternoon shift shown.</div>'}`;
+    return `
+      <div class="pattern-row">
+        <div class="pattern-day">${DAY_NAMES[dow]}</div>
+        <div class="pattern-controls">
+          ${afternoonRow}
           <div class="pattern-fill">
             <span>Usually covered by:</span>
             <select onchange="onPatternPreset(${dow},this.value)">${opts}</select>
@@ -759,20 +885,20 @@ function renderPatternEditor() {
 }
 
 function onPatternToggle(dow, checked) {
-  state.pattern[dow].afternoonNeeded = checked;
+  plan().pattern[dow].afternoonNeeded = checked;
   save();
   renderPatternEditor();
 }
 
 function onPatternPreset(dow, value) {
-  state.pattern[dow].preset = value || null;
+  plan().pattern[dow].preset = value || null;
   save();
 }
 
 function confirmResetToPattern() {
-  if (!confirm('Clear every shift in this two-week schedule and re-fill it from "A normal week"?\n\nAnything you changed by hand will be lost.')) return;
+  if (!confirm(`Clear every shift in "${plan().name}" for these two weeks and re-fill it from "A normal week"?\n\nAnything you changed by hand will be lost. The other schedule is not affected.`)) return;
   refreshDays();
-  applyPresetsForce(state, DAYS);
+  applyPresetsForce(plan(), DAYS);
   save();
   openOnlyView = false;
   renderSchedule();
@@ -781,7 +907,7 @@ function confirmResetToPattern() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Caregivers (Set-Up tab)
+// Caregivers (Set-Up tab, shared by both plans)
 // ═══════════════════════════════════════════════════════════════════
 
 function renderCaregivers() {
@@ -809,10 +935,11 @@ function addCaregiver() {
 }
 
 function removeCaregiver(name) {
-  if (!confirm(`Remove "${name}" from the caregiver list?\nTheir shifts in the schedule will be marked as needing someone.`)) return;
+  if (!confirm(`Remove "${name}" from the caregiver list?\nTheir shifts in both schedules will be marked as needing someone.`)) return;
   state.caregivers = state.caregivers.filter(c => c !== name);
-  for (const k in state.assignments) {
-    if (state.assignments[k] === name) delete state.assignments[k];
+  for (const pk in state.plans) {
+    const as = state.plans[pk].assignments;
+    for (const k in as) { if (as[k] === name) delete as[k]; }
   }
   save();
   renderCaregivers();
@@ -839,7 +966,8 @@ function renderSchedule() {
 }
 
 function renderDay(day, i) {
-  const note = !day.afternoonNeeded ? 'Day program covers 1–5p' : null;
+  const hasAfternoon = plan().shiftDefs.some(s => s.id === 'afternoon');
+  const note = (hasAfternoon && !day.afternoonNeeded) ? 'Day program covers 1–5p' : null;
   return `
     <div class="card day-card" id="day-${i}">
       <div class="day-header">
@@ -997,7 +1125,7 @@ function updateSummary() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Text generators (Messages tab)
+// Text generators (Messages tab, from the active plan)
 // ═══════════════════════════════════════════════════════════════════
 
 function periodLabel() {
@@ -1005,6 +1133,10 @@ function periodLabel() {
   const end   = new Date(start); end.setDate(end.getDate()+13);
   const fmt   = d => d.toLocaleDateString('en-US',{ month:'long', day:'numeric' });
   return `${fmt(start)} – ${fmt(end)}, ${start.getFullYear()}`;
+}
+
+function planSubtitleLines() {
+  return state.activePlan === 'b' ? ['(Backup plan — if Bob stays over)'] : [];
 }
 
 function onSignoffInput(value) {
@@ -1024,7 +1156,7 @@ function renderText() { renderWeekdayText(); renderWeekendText(); }
 function renderWeekdayText() {
   const onlyOpen = state.msgOpenOnly;
   const signoff  = state.signoff;
-  const lines    = [`Carolyn's Weekday Coverage — ${periodLabel()}`, ''];
+  const lines    = [`Carolyn's Weekday Coverage — ${periodLabel()}`, ...planSubtitleLines(), ''];
   const WKDAY    = new Set([1,2,3,4,5]);
 
   DAYS.forEach((day, i) => {
@@ -1049,9 +1181,12 @@ function renderWeekdayText() {
 
 function renderWeekendText() {
   const signoff  = state.signoff;
-  const lines    = [`Carolyn's Weekend Coverage — ${periodLabel()}`, ''];
+  const lines    = [`Carolyn's Weekend Coverage — ${periodLabel()}`, ...planSubtitleLines(), ''];
   const WKEND    = new Set([0,6]);
   const wkDays   = DAYS.map((day,i)=>({day,i})).filter(({day})=>WKEND.has(day.dow));
+  // The compact "Sat – Mon 8:30a" line describes a weekend block that ends
+  // with an overnight — only valid for plans that have an overnight shift.
+  const hasOvernight = plan().shiftDefs.some(s => s.id === 'overnight');
 
   let idx = 0;
   while (idx < wkDays.length) {
@@ -1070,7 +1205,7 @@ function renderWeekendText() {
       });
     });
 
-    if (names.size === 1 && allFilled) {
+    if (names.size === 1 && allFilled && hasOvernight) {
       const satD = new Date(sat.dateKey+'T12:00:00');
       const monD = new Date(sat.dateKey+'T12:00:00'); monD.setDate(monD.getDate()+2);
       const fmt  = d => d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
@@ -1114,9 +1249,12 @@ function renderPersonText() {
 
   if (!rows.length) { out.textContent = `${pick} has no shifts in this schedule yet.`; return; }
 
+  const intro = state.activePlan === 'b'
+    ? `Here are your shifts covering for Carolyn while Bob stays over (${periodLabel()}):`
+    : `Here are your shifts covering for Carolyn (${periodLabel()}):`;
   const lines = [
     `Hi ${pick}!`, '',
-    `Here are your shifts covering for Carolyn (${periodLabel()}):`, '',
+    intro, '',
     ...rows, '',
     'Please let me know if you have any questions or conflicts.', '',
   ];
@@ -1174,6 +1312,7 @@ function esc(s) {
 
 refreshDays();
 updateHeader();
+updatePlanUI();
 renderCaregivers();
 renderShiftTemplateEditor();
 renderPatternEditor();
