@@ -256,7 +256,7 @@
   <p id="headerPeriod">Coverage Tracker</p>
 </header>
 
-<main class="main">
+<main class="main" id="mainEl">
 
   <!-- ── Plan switcher (visible on every tab) ── -->
   <div class="plan-switch">
@@ -373,6 +373,9 @@
       <div class="text-output" id="textOutHours"></div>
       <button class="copy-btn" onclick="copyText('textOutHours','copyConfirmHours')">📋&nbsp; Copy hours summary</button>
       <div class="copy-confirm" id="copyConfirmHours"></div>
+      <button class="copy-btn" style="background:var(--blue);margin-top:6px;" onclick="shareHoursLink()">🔗&nbsp; Copy shareable link</button>
+      <div class="copy-confirm" id="shareConfirm"></div>
+      <div class="card-help" style="margin:8px 0 0;">The link opens a read-only page with these hours and costs — send it by text or email. It shows the numbers as they are right now; changes after sharing need a new link.</div>
     </div>
   </section>
 
@@ -437,7 +440,7 @@
 
 </main>
 
-<nav class="tabbar">
+<nav class="tabbar" id="tabbar">
   <button class="tab active" id="tab-schedule" onclick="switchTab('schedule')"><span class="tab-icon">📅</span>Schedule</button>
   <button class="tab" id="tab-messages" onclick="switchTab('messages')"><span class="tab-icon">💬</span>Messages</button>
   <button class="tab" id="tab-hours" onclick="switchTab('hours')"><span class="tab-icon">⏱</span>Hours</button>
@@ -1889,12 +1892,12 @@ function downloadIcs() {
   }
 }
 
-function copyText(outId, confirmId) {
-  const txt  = document.getElementById(outId).textContent;
+function copyString(txt, confirmId, okMsg) {
   const done = () => {
     const el = document.getElementById(confirmId);
-    el.textContent = '✓ Copied! Now paste it into your text message.';
-    setTimeout(()=> el.textContent='', 3500);
+    if (!el) return;
+    el.textContent = okMsg;
+    setTimeout(()=> el.textContent='', 4000);
   };
   const fallback = () => {
     const ta = document.createElement('textarea');
@@ -1912,6 +1915,102 @@ function copyText(outId, confirmId) {
   }
 }
 
+function copyText(outId, confirmId) {
+  copyString(document.getElementById(outId).textContent, confirmId,
+    '✓ Copied! Now paste it into your text message.');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Shareable hours link — the numbers travel inside the URL itself,
+// so the recipient needs no app data (and theirs is never touched)
+// ═══════════════════════════════════════════════════════════════════
+
+function b64urlEncode(str) {
+  return btoa(unescape(encodeURIComponent(str)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+function b64urlDecode(s) {
+  s = s.replace(/-/g,'+').replace(/_/g,'/');
+  while (s.length % 4) s += '=';
+  return decodeURIComponent(escape(atob(s)));
+}
+
+// Compact snapshot: r = [name, total, scheduled, adjustment, note, rate]
+function buildHoursSharePayload() {
+  const { per } = computeHours();
+  const rows = [];
+  let gh = 0, gp = 0;
+  state.caregivers.forEach(n => {
+    const p = per[n];
+    const t = p.sched + p.adj;
+    if (!t && !p.shifts.length) return;
+    const rate = rateFor(n);
+    gh += t;
+    gp += t * rate;
+    rows.push([n, Math.round(t*100)/100, Math.round(p.sched*100)/100, p.adj || 0, p.note || '', rate]);
+  });
+  return { v:1, p: periodLabel(), b: state.activePlan === 'b' ? plan().name : '',
+           r: rows, gh: Math.round(gh*100)/100, gp: Math.round(gp*100)/100 };
+}
+
+function shareHoursLink() {
+  const payload = buildHoursSharePayload();
+  if (!payload.r.length) {
+    const c = document.getElementById('shareConfirm');
+    if (c) { c.textContent = 'Nothing to share yet — no hours in this period.'; setTimeout(()=> c.textContent='', 4000); }
+    return;
+  }
+  const url = location.origin + location.pathname + '#hours=' + b64urlEncode(JSON.stringify(payload));
+  copyString(url, 'shareConfirm', '✓ Link copied — paste it into a text or email.');
+}
+
+function tryRenderSharedView() {
+  if (typeof location === 'undefined') return false;
+  const m = (location.hash || '').match(/^#hours=(.+)$/);
+  if (!m) return false;
+  let data;
+  try { data = JSON.parse(b64urlDecode(m[1])); } catch(_) { return false; }
+  if (!data || data.v !== 1 || !Array.isArray(data.r)) return false;
+
+  const hp = document.getElementById('headerPeriod');
+  if (hp) hp.textContent = data.p || '';
+  const tb = document.getElementById('tabbar');
+  if (tb && tb.style) tb.style.display = 'none';
+
+  const rows = data.r.map(r => {
+    const n = r[0], t = r[1] || 0, sched = r[2] || 0, adj = r[3] || 0, note = r[4] || '', rate = r[5] || 0;
+    return `
+      <div class="hours-row">
+        <div class="hours-top">
+          <span class="hours-name">${esc(n)}</span>
+          <span>
+            <span class="hours-total">${fmtH(t)} h</span>
+            ${rate ? `<span class="hours-pay">${fmtMoney(t * rate)}</span>` : ''}
+          </span>
+        </div>
+        <div class="hours-sub">${fmtH(sched)} h scheduled${adj ? ` ${adj > 0 ? '+' : ''}${fmtH(adj)} h${note ? ' — ' + esc(note) : ''}` : ''}${rate ? ` · ${fmtMoney(rate)}/h` : ''}</div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('mainEl').innerHTML = `
+    <div class="card">
+      <div class="card-title">⏱ Caregiver hours & pay</div>
+      <div class="card-help">${esc(data.p || '')}${data.b ? ' · ' + esc(data.b) : ''} — shared from Carolyn's Care Schedule.</div>
+      ${rows}
+      <div class="hours-grand">Everyone together: <b>${fmtH(data.gh || 0)} h${data.gp ? ' · ' + fmtMoney(data.gp) : ''}</b></div>
+    </div>
+    <div class="card">
+      <button class="btn btn-outline btn-block" onclick="exitSharedView()">Open the schedule app</button>
+    </div>`;
+  return true;
+}
+
+function exitSharedView() {
+  location.hash = '';
+  location.reload();
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Utility
 // ═══════════════════════════════════════════════════════════════════
@@ -1926,30 +2025,33 @@ function esc(s) {
 // Boot
 // ═══════════════════════════════════════════════════════════════════
 
-refreshDays();
-selectedDayIdx = defaultSelectedDay();
-updateHeader();
-updatePlanUI();
-renderCaregivers();
-renderLoaEditor();
-renderRates();
-renderShiftTemplateEditor();
-renderPatternEditor();
-renderSchedule();
+// A "#hours=…" link renders the read-only shared page instead of the app
+if (!tryRenderSharedView()) {
+  refreshDays();
+  selectedDayIdx = defaultSelectedDay();
+  updateHeader();
+  updatePlanUI();
+  renderCaregivers();
+  renderLoaEditor();
+  renderRates();
+  renderShiftTemplateEditor();
+  renderPatternEditor();
+  renderSchedule();
 
-const signoffEl = document.getElementById('signoffInput');
-if (signoffEl) signoffEl.value = state.signoff;
-const openOnlyEl = document.getElementById('msgOpenOnly');
-if (openOnlyEl) openOnlyEl.checked = state.msgOpenOnly;
-const notesEl = document.getElementById('notesArea');
-if (notesEl) notesEl.value = state.notes;
+  const signoffEl = document.getElementById('signoffInput');
+  if (signoffEl) signoffEl.value = state.signoff;
+  const openOnlyEl = document.getElementById('msgOpenOnly');
+  if (openOnlyEl) openOnlyEl.checked = state.msgOpenOnly;
+  const notesEl = document.getElementById('notesArea');
+  if (notesEl) notesEl.value = state.notes;
 
-renderText();
-refreshCaregiverPick();
+  renderText();
+  refreshCaregiverPick();
 
-const newNameEl = document.getElementById('newName');
-if (newNameEl && newNameEl.addEventListener) {
-  newNameEl.addEventListener('keydown', e => { if(e.key==='Enter') addCaregiver(); });
+  const newNameEl = document.getElementById('newName');
+  if (newNameEl && newNameEl.addEventListener) {
+    newNameEl.addEventListener('keydown', e => { if(e.key==='Enter') addCaregiver(); });
+  }
 }
 </script>
 </body>
