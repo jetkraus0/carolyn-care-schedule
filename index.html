@@ -210,6 +210,25 @@
     .shift-conflict .shift-select{border-color:#fde047;color:var(--yellow-fg);}
     .conflict-note{font-size:.8rem;color:var(--yellow-fg);font-weight:700;margin-top:7px;}
 
+    /* ── Hours tab ── */
+    .hours-row{padding:12px 0;border-bottom:1px solid var(--gray-bg);}
+    .hours-row:last-of-type{border-bottom:none;}
+    .hours-top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+    .hours-name{font-size:1rem;font-weight:800;}
+    .hours-total{font-size:1.05rem;font-weight:800;color:var(--blue-dark);white-space:nowrap;}
+    body.plan-b .hours-total{color:var(--purple-dark);}
+    .hours-sub{font-size:.8rem;color:var(--muted);margin-top:2px;}
+    .hours-shifts{margin-top:5px;}
+    .hours-shifts summary{font-size:.78rem;color:var(--muted);cursor:pointer;list-style:none;font-weight:700;user-select:none;}
+    .hours-shifts summary::-webkit-details-marker{display:none;}
+    .hours-shifts summary:hover,.hours-shifts[open] summary{color:var(--blue-dark);}
+    .hours-shift{font-size:.78rem;color:var(--muted);padding:3px 0 0 10px;}
+    .hours-adj-row{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:.85rem;font-weight:600;color:var(--muted);flex-wrap:wrap;}
+    .hours-adj-row input[type=number]{width:84px;border:1.5px solid var(--border);border-radius:9px;padding:8px;background:white;}
+    .hours-note{flex:1;min-width:130px;border:1.5px solid var(--border);border-radius:9px;padding:8px;}
+    .hours-grand{padding:12px 2px 2px;font-size:.95rem;font-weight:700;text-align:right;}
+    .hours-skip{font-size:.78rem;color:var(--yellow-fg);margin-top:8px;font-weight:600;}
+
     /* ── Notes ── */
     .notes-area{width:100%;border:1.5px solid var(--border);border-radius:11px;padding:12px 13px;background:#fffdf5;min-height:84px;resize:vertical;line-height:1.5;color:var(--text);}
     .notes-area:focus{border-color:var(--blue);outline:none;}
@@ -327,6 +346,27 @@
     </div>
   </section>
 
+  <!-- ════════ HOURS TAB ════════ -->
+  <section id="panel-hours" class="panel">
+
+    <div class="card">
+      <div class="card-title">⏱ Hours this pay period</div>
+      <div class="card-help">Counted automatically from the schedule. If someone covered a shift, change that day's dropdown on the Schedule page and their hours follow. Use <b>Adjust</b> for extra time that isn't a shift — add hours like <b>1.5</b> or subtract like <b>-2</b>. Adjustments are saved separately for each pay period.
+        <span class="plan-edit-note" id="planNoteHours"></span>
+      </div>
+      <div id="hoursList"></div>
+      <div class="hours-skip" id="hoursSkipped"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📄 Hours summary</div>
+      <div class="card-help">Copy this for your records or for whoever handles the pay.</div>
+      <div class="text-output" id="textOutHours"></div>
+      <button class="copy-btn" onclick="copyText('textOutHours','copyConfirmHours')">📋&nbsp; Copy hours summary</button>
+      <div class="copy-confirm" id="copyConfirmHours"></div>
+    </div>
+  </section>
+
   <!-- ════════ SET-UP TAB ════════ -->
   <section id="panel-setup" class="panel">
 
@@ -385,6 +425,7 @@
 <nav class="tabbar">
   <button class="tab active" id="tab-schedule" onclick="switchTab('schedule')"><span class="tab-icon">📅</span>Schedule</button>
   <button class="tab" id="tab-messages" onclick="switchTab('messages')"><span class="tab-icon">💬</span>Messages</button>
+  <button class="tab" id="tab-hours" onclick="switchTab('hours')"><span class="tab-icon">⏱</span>Hours</button>
   <button class="tab" id="tab-setup" onclick="switchTab('setup')"><span class="tab-icon">⚙️</span>Set-Up</button>
 </nav>
 
@@ -572,6 +613,7 @@ function loadState() {
       if (typeof s.notes       !== 'string')  s.notes       = '';
       if (!Array.isArray(s.loa))              s.loa         = [];
       if (s.scheduleView !== 'calendar')      s.scheduleView = 'list';
+      if (!s.hoursAdj)                        s.hoursAdj    = {};
       return s;
     }
   } catch(_) {}
@@ -584,6 +626,7 @@ function loadState() {
     notes       : '',
     loa         : [],
     scheduleView: 'list',
+    hoursAdj    : {},
     activePlan  : 'a',
     plans: {
       a: { name:'Regular schedule',  shiftDefs:deepClone(DEFAULT_SHIFT_DEFS), pattern:deepClone(DEFAULT_PATTERN), assignments:{}, dayOverrides:{} },
@@ -615,7 +658,7 @@ function deepClone(o) { return JSON.parse(JSON.stringify(o)); }
 // Tabs & plan switching
 // ═══════════════════════════════════════════════════════════════════
 
-const TAB_IDS = ['schedule','messages','setup'];
+const TAB_IDS = ['schedule','messages','hours','setup'];
 function switchTab(name) {
   TAB_IDS.forEach(t => {
     const panel = document.getElementById('panel-' + t);
@@ -658,7 +701,7 @@ function updatePlanUI() {
   }
   const notes = { planNoteMsg:'Messages come from: ', planNoteShifts:'These changes apply to: ',
                   planNoteWeek:'These changes apply to: ', planNoteReset:'This clears: ',
-                  planNoteIcs:'Exports: ' };
+                  planNoteIcs:'Exports: ', planNoteHours:'Counting hours for: ' };
   for (const id in notes) {
     const el = document.getElementById(id);
     if (el) el.textContent = notes[id] + plan().name;
@@ -1441,7 +1484,7 @@ function onMsgOpenOnlyToggle(checked) {
   renderText();
 }
 
-function renderText() { renderWeekdayText(); renderWeekendText(); }
+function renderText() { renderWeekdayText(); renderWeekendText(); renderHours(); }
 
 function renderWeekdayText() {
   const onlyOpen = state.msgOpenOnly;
@@ -1561,6 +1604,121 @@ function refreshCaregiverPick() {
       `<option value="${esc(c)}" ${c===cur?'selected':''}>${esc(c)}</option>`
     ).join('');
   renderPersonText();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Hours per caregiver (Hours tab) — tallied from the active plan's
+// assigned shifts, plus manual per-pay-period adjustments
+// ═══════════════════════════════════════════════════════════════════
+
+// Length of a shift in hours; null when the time text isn't parseable
+function shiftHours(timeStr) {
+  const r = parseShiftRange(timeStr || '');
+  if (!r) return null;
+  const start = r.start.h * 60 + r.start.m;
+  const end   = r.end.h * 60 + r.end.m + (r.overnight ? 1440 : 0);
+  return (end - start) / 60;
+}
+
+function fmtH(h) { return String(Math.round(h * 100) / 100); }
+
+// Adjustments are stored per pay period, per plan, per caregiver
+function adjKey(name) { return `${state.startDate}|${state.activePlan}|${name}`; }
+
+function computeHours() {
+  const per = {}, skipped = [];
+  state.caregivers.forEach(n => per[n] = { sched:0, shifts:[], adj:0, note:'' });
+  DAYS.forEach((day, i) => {
+    neededShifts(i).forEach(s => {
+      const who = getAssigned(day.dateKey, s.id);
+      if (!who) return;
+      if (!per[who]) per[who] = { sched:0, shifts:[], adj:0, note:'' };
+      const h = shiftHours(s.time);
+      if (h == null) {
+        skipped.push(`${day.dateShort}: ${s.label}${s.time ? ' (' + s.time + ')' : ''} — ${who}`);
+        return;
+      }
+      per[who].sched += h;
+      per[who].shifts.push({ date: day.dateShort, label: s.label, time: s.time, h });
+    });
+  });
+  for (const n in per) {
+    const a = state.hoursAdj[adjKey(n)];
+    if (a) { per[n].adj = a.h || 0; per[n].note = a.note || ''; }
+  }
+  return { per, skipped };
+}
+
+function renderHours() {
+  const listEl = document.getElementById('hoursList');
+  if (!listEl) return;
+  const { per, skipped } = computeHours();
+  let grand = 0;
+  const rows = state.caregivers.map(n => {
+    const p = per[n];
+    const total = p.sched + p.adj;
+    grand += total;
+    const shiftRows = p.shifts.map(x =>
+      `<div class="hours-shift">${esc(x.date)} · ${esc(x.label)} ${esc(x.time)} — <b>${fmtH(x.h)} h</b></div>`).join('');
+    return `
+      <div class="hours-row">
+        <div class="hours-top">
+          <span class="hours-name">${esc(n)}</span>
+          <span class="hours-total">${fmtH(total)} h</span>
+        </div>
+        <div class="hours-sub">${fmtH(p.sched)} h scheduled${p.adj ? ` ${p.adj > 0 ? '+' : ''}${fmtH(p.adj)} h adjustment` : ''}</div>
+        ${p.shifts.length ? `<details class="hours-shifts"><summary>${p.shifts.length} shift${p.shifts.length === 1 ? '' : 's'} ▾</summary>${shiftRows}</details>` : ''}
+        <div class="hours-adj-row">
+          <label>Adjust:</label>
+          <input type="number" step="0.25" value="${p.adj || ''}" placeholder="0" onchange="updateHoursAdj('${esc(n)}', this.value)" />
+          <span>h</span>
+          <input type="text" class="hours-note" value="${esc(p.note)}" placeholder="why? (e.g. stayed late Tue)" onchange="updateHoursNote('${esc(n)}', this.value)" />
+        </div>
+      </div>`;
+  }).join('');
+  listEl.innerHTML = rows + `<div class="hours-grand">Everyone together: <b>${fmtH(grand)} h</b></div>`;
+  const skipEl = document.getElementById('hoursSkipped');
+  if (skipEl) skipEl.textContent = skipped.length
+    ? '⚠ Not counted (time unclear): ' + skipped.join(' · ') : '';
+  renderHoursText(per);
+}
+
+function updateHoursAdj(name, val) {
+  const k   = adjKey(name);
+  const cur = state.hoursAdj[k] || { h:0, note:'' };
+  cur.h = parseFloat(val) || 0;
+  if (!cur.h && !cur.note) delete state.hoursAdj[k];
+  else state.hoursAdj[k] = cur;
+  save();
+  renderHours();
+}
+
+function updateHoursNote(name, val) {
+  const k   = adjKey(name);
+  const cur = state.hoursAdj[k] || { h:0, note:'' };
+  cur.note = val.trim();
+  if (!cur.h && !cur.note) delete state.hoursAdj[k];
+  else state.hoursAdj[k] = cur;
+  save();
+  renderHours();
+}
+
+function renderHoursText(per) {
+  const el = document.getElementById('textOutHours');
+  if (!el) return;
+  const lines = [`Caregiver hours — ${periodLabel()}`, ...planSubtitleLines(), ''];
+  let grand = 0;
+  state.caregivers.forEach(n => {
+    const p = per[n];
+    const t = p.sched + p.adj;
+    if (!t && !p.shifts.length) return;
+    grand += t;
+    let line = `${n}: ${fmtH(t)} h`;
+    if (p.adj) line += ` (${fmtH(p.sched)} scheduled ${p.adj > 0 ? '+' : ''}${fmtH(p.adj)}${p.note ? ' — ' + p.note : ''})`;
+    lines.push(line);
+  });
+  lines.push('', `Total: ${fmtH(grand)} h`);
+  el.textContent = lines.join('\n');
 }
 
 // ═══════════════════════════════════════════════════════════════════
