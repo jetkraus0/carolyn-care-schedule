@@ -373,7 +373,7 @@
       <div class="text-output" id="textOutHours"></div>
       <button class="copy-btn" onclick="copyText('textOutHours','copyConfirmHours')">📋&nbsp; Copy hours summary</button>
       <div class="copy-confirm" id="copyConfirmHours"></div>
-      <button class="copy-btn" style="background:var(--blue);margin-top:6px;" onclick="shareHoursLink()">🔗&nbsp; Copy shareable link</button>
+      <button class="copy-btn" style="background:var(--blue);margin-top:6px;" onclick="shareHoursLink()">🔗&nbsp; Copy link that shows these costs</button>
       <div class="copy-confirm" id="shareConfirm"></div>
       <div class="card-help" style="margin:8px 0 0;">The link opens a read-only page with these hours and costs — send it by text or email. It shows the numbers as they are right now; changes after sharing need a new link.</div>
     </div>
@@ -438,7 +438,7 @@
     <div class="card">
       <div class="card-title">🔁 Move to another device / share everything</div>
       <div class="card-help">Copies one link that holds the <b>entire</b> schedule — both plans, caregivers, rates, away dates, notes, and history. Open it on another phone or send it to family; they'll be asked before it replaces anything on their device. It makes a copy: changes on one device don't show up on the other.</div>
-      <button class="copy-btn" onclick="shareBackupLink()">🔁&nbsp; Copy transfer link</button>
+      <button class="copy-btn" onclick="shareBackupLink()">🔁&nbsp; Copy transfer link (the whole schedule)</button>
       <div class="copy-confirm" id="backupConfirm"></div>
     </div>
 
@@ -2151,6 +2151,15 @@ function esc(s) {
 // ═══════════════════════════════════════════════════════════════════
 // Boot
 // ═══════════════════════════════════════════════════════════════════
+
+// Browsers don't reload when only the #fragment changes — so if a share
+// or transfer link is opened while this page is already in the tab,
+// force a reload to run the matching view.
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('hashchange', () => {
+    if (/^#(hours|backup)=/.test(location.hash || '')) location.reload();
+  });
+}
 
 // A "#backup=…" link renders the transfer flow; a "#hours=…" link renders
 // the read-only shared page. Otherwise the normal app boots.
