@@ -316,6 +316,15 @@
       <button class="copy-btn" onclick="copyText('textOut2','copyConfirm2')">📋&nbsp; Copy their message</button>
       <div class="copy-confirm" id="copyConfirm2"></div>
     </div>
+
+    <div class="card">
+      <div class="card-title">📆 Add to phone calendar</div>
+      <div class="card-help">Downloads a calendar file with every <b>assigned</b> shift in these two weeks. Open the file and tap <b>Add All</b> on an iPhone (or import it into Google Calendar) and the shifts appear as regular calendar events.
+        <span class="plan-edit-note" id="planNoteIcs"></span>
+      </div>
+      <button class="copy-btn" onclick="downloadIcs()">⬇&nbsp; Download calendar file</button>
+      <div class="copy-confirm" id="icsConfirm"></div>
+    </div>
   </section>
 
   <!-- ════════ SET-UP TAB ════════ -->
@@ -648,7 +657,8 @@ function updatePlanUI() {
     if (cap.style) cap.style.display = isB ? 'block' : 'none';
   }
   const notes = { planNoteMsg:'Messages come from: ', planNoteShifts:'These changes apply to: ',
-                  planNoteWeek:'These changes apply to: ', planNoteReset:'This clears: ' };
+                  planNoteWeek:'These changes apply to: ', planNoteReset:'This clears: ',
+                  planNoteIcs:'Exports: ' };
   for (const id in notes) {
     const el = document.getElementById(id);
     if (el) el.textContent = notes[id] + plan().name;
@@ -1551,6 +1561,104 @@ function refreshCaregiverPick() {
       `<option value="${esc(c)}" ${c===cur?'selected':''}>${esc(c)}</option>`
     ).join('');
   renderPersonText();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Calendar (.ics) export — assigned shifts of the active plan
+// ═══════════════════════════════════════════════════════════════════
+
+// "8:30a" / "1:00p" → {h, m} in 24-hour time
+function parseTimeToken(tok) {
+  const m = tok.match(/(\d{1,2})(?::(\d{2}))?\s*([ap])/i);
+  if (!m) return null;
+  let h = parseInt(m[1], 10) % 12;
+  if (m[3].toLowerCase() === 'p') h += 12;
+  return { h, m: m[2] ? parseInt(m[2], 10) : 0 };
+}
+
+// "8:30p – 8:30a" → {start, end, overnight}; null if not two parseable times
+function parseShiftRange(timeStr) {
+  const toks = String(timeStr).match(/\d{1,2}(?::\d{2})?\s*[ap]/gi);
+  if (!toks || toks.length < 2) return null;
+  const a = parseTimeToken(toks[0]), b = parseTimeToken(toks[1]);
+  if (!a || !b) return null;
+  return { start:a, end:b, overnight: (b.h * 60 + b.m) <= (a.h * 60 + a.m) };
+}
+
+function icsEscape(s) {
+  return String(s).replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\n/g,'\\n');
+}
+
+// Floating local time (no timezone suffix) — imports as the local wall time
+function icsDateTime(dateKey, t) {
+  return dateKey.replace(/-/g,'') + 'T' +
+    String(t.h).padStart(2,'0') + String(t.m).padStart(2,'0') + '00';
+}
+
+function buildIcs() {
+  const now = new Date();
+  const p2  = n => String(n).padStart(2,'0');
+  const dtstamp = now.getUTCFullYear() + p2(now.getUTCMonth()+1) + p2(now.getUTCDate()) +
+    'T' + p2(now.getUTCHours()) + p2(now.getUTCMinutes()) + p2(now.getUTCSeconds()) + 'Z';
+
+  const events = [];
+  DAYS.forEach((day, i) => {
+    neededShifts(i).forEach(s => {
+      const who = getAssigned(day.dateKey, s.id);
+      if (!who) return;
+      const uid   = `${day.dateKey}-${s.id}-${state.activePlan}@carolyn-care-schedule`;
+      const range = parseShiftRange(s.time || '');
+      const ev = ['BEGIN:VEVENT', 'UID:' + uid, 'DTSTAMP:' + dtstamp];
+      if (range) {
+        const endKey = range.overnight ? addDaysToKey(day.dateKey, 1) : day.dateKey;
+        ev.push('DTSTART:' + icsDateTime(day.dateKey, range.start));
+        ev.push('DTEND:'   + icsDateTime(endKey, range.end));
+        ev.push('SUMMARY:' + icsEscape(`${who} – ${s.label} (Carolyn)`));
+      } else {
+        // Time not parseable (free-text custom shift) — make it an all-day
+        // event and keep the raw time text in the title
+        ev.push('DTSTART;VALUE=DATE:' + day.dateKey.replace(/-/g,''));
+        ev.push('DTEND;VALUE=DATE:'   + addDaysToKey(day.dateKey, 1).replace(/-/g,''));
+        ev.push('SUMMARY:' + icsEscape(`${who} – ${s.label}${s.time ? ' ' + s.time : ''} (Carolyn)`));
+      }
+      ev.push('DESCRIPTION:' + icsEscape(`Carolyn's care schedule — ${plan().name}`));
+      ev.push('END:VEVENT');
+      events.push(ev.join('\r\n'));
+    });
+  });
+
+  if (!events.length) return null;
+  return [
+    'BEGIN:VCALENDAR', 'VERSION:2.0',
+    'PRODID:-//Carolyn Care Schedule//EN',
+    'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'X-WR-CALNAME:Carolyn Care',
+    events.join('\r\n'),
+    'END:VCALENDAR', '',
+  ].join('\r\n');
+}
+
+function downloadIcs() {
+  const ics  = buildIcs();
+  const conf = document.getElementById('icsConfirm');
+  if (!ics) {
+    if (conf) conf.textContent = 'No assigned shifts to export yet — fill in some shifts first.';
+    setTimeout(() => { if (conf) conf.textContent = ''; }, 4000);
+    return;
+  }
+  const blob = new Blob([ics], { type:'text/calendar;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `carolyn-schedule-${state.startDate}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  if (conf) {
+    conf.textContent = '✓ Downloaded! Open the file and tap "Add All" to put it on the calendar.';
+    setTimeout(() => { conf.textContent = ''; }, 6000);
+  }
 }
 
 function copyText(outId, confirmId) {
