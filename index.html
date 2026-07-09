@@ -435,6 +435,13 @@
       <button class="btn btn-outline btn-block" onclick="confirmResetToPattern()">Re-fill schedule from the normal week</button>
     </div>
 
+    <div class="card">
+      <div class="card-title">🔁 Move to another device / share everything</div>
+      <div class="card-help">Copies one link that holds the <b>entire</b> schedule — both plans, caregivers, rates, away dates, notes, and history. Open it on another phone or send it to family; they'll be asked before it replaces anything on their device. It makes a copy: changes on one device don't show up on the other.</div>
+      <button class="copy-btn" onclick="shareBackupLink()">🔁&nbsp; Copy transfer link</button>
+      <div class="copy-confirm" id="backupConfirm"></div>
+    </div>
+
     <footer>Your schedule is saved on this device automatically.</footer>
   </section>
 
@@ -534,6 +541,7 @@ let state = loadState();
 let DAYS  = [];
 let openOnlyView = false;   // schedule tab filter (not saved — resets each visit)
 let selectedDayIdx = 0;     // day shown under the calendar grid
+let pendingImport = null;   // JSON string waiting for the user to confirm a transfer
 
 // The active plan: every schedule read/write goes through here.
 function plan() { return state.plans[state.activePlan]; }
@@ -2012,6 +2020,125 @@ function exitSharedView() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Full-schedule transfer link — the whole saved state, gzip-compressed
+// into the URL. Importing always previews and asks first.
+// ═══════════════════════════════════════════════════════════════════
+
+function bytesToB64url(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+function b64urlToBytes(s) {
+  s = s.replace(/-/g,'+').replace(/_/g,'/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function gzipString(str) {
+  const stream = new Blob([new TextEncoder().encode(str)]).stream()
+    .pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function gunzipToString(bytes) {
+  const stream = new Blob([bytes]).stream()
+    .pipeThrough(new DecompressionStream('gzip'));
+  return new TextDecoder().decode(await new Response(stream).arrayBuffer());
+}
+
+async function shareBackupLink() {
+  const json = JSON.stringify(state);
+  let frag;
+  try {
+    if (typeof CompressionStream !== 'undefined') frag = 'gz.' + bytesToB64url(await gzipString(json));
+    else frag = 'js.' + b64urlEncode(json);
+  } catch(_) {
+    frag = 'js.' + b64urlEncode(json);
+  }
+  const url = location.origin + location.pathname + '#backup=' + frag;
+  const msg = url.length > 8000
+    ? `✓ Link copied — it's long (${url.length} characters), so send it by email rather than text.`
+    : '✓ Transfer link copied — paste it into a text or email.';
+  copyString(url, 'backupConfirm', msg);
+}
+
+function tryRenderBackupImport() {
+  if (typeof location === 'undefined') return false;
+  const m = (location.hash || '').match(/^#backup=(gz|js)\.(.+)$/);
+  if (!m) return false;
+  renderBackupImport(m[1], m[2]);
+  return true;
+}
+
+async function renderBackupImport(kind, data) {
+  const mainEl = document.getElementById('mainEl');
+  const tb = document.getElementById('tabbar');
+  if (tb && tb.style) tb.style.display = 'none';
+  const fail = msg => {
+    mainEl.innerHTML = `
+      <div class="card">
+        <div class="card-title">⚠ Can't read this link</div>
+        <div class="card-help">${esc(msg)}</div>
+        <button class="btn btn-outline btn-block" onclick="exitSharedView()">Open my schedule</button>
+      </div>`;
+  };
+
+  let json;
+  try {
+    if (kind === 'gz') {
+      if (typeof DecompressionStream === 'undefined')
+        return fail("This browser is too old to open compressed transfer links — update the phone's software and try again.");
+      json = await gunzipToString(b64urlToBytes(data));
+    } else {
+      json = b64urlDecode(data);
+    }
+  } catch(_) { return fail('The link looks incomplete — make sure the whole link was copied and sent.'); }
+
+  let st;
+  try { st = JSON.parse(json); } catch(_) { return fail('The link looks incomplete — make sure the whole link was copied and sent.'); }
+  if (!st || !st.plans || !Array.isArray(st.caregivers)) return fail("This link doesn't contain a schedule.");
+
+  pendingImport = json;
+  const hasExisting = !!localStorage.getItem(STORAGE_KEY);
+  const nAssign =
+    Object.keys((st.plans.a && st.plans.a.assignments) || {}).length +
+    Object.keys((st.plans.b && st.plans.b.assignments) || {}).length;
+  const start = st.startDate
+    ? new Date(st.startDate + 'T12:00:00').toLocaleDateString('en-US',{ month:'long', day:'numeric', year:'numeric' })
+    : '—';
+
+  mainEl.innerHTML = `
+    <div class="card">
+      <div class="card-title">🔁 Schedule transfer</div>
+      <div class="card-help">Someone sent you a complete copy of Carolyn's care schedule.</div>
+      <div style="font-size:.92rem;line-height:1.7;">
+        Current period starts: <b>${esc(start)}</b><br>
+        Caregivers: <b>${st.caregivers.length}</b> &nbsp;·&nbsp; Saved shift assignments: <b>${nAssign}</b>
+      </div>
+    </div>
+    <div class="card">
+      ${hasExisting ? '<div class="card-help">⚠ This device already has a saved schedule. Loading this copy <b>replaces</b> it. (The old one is kept as an emergency backup just in case.)</div>' : ''}
+      <button class="copy-btn" onclick="confirmImportBackup()">Load this schedule on this device</button>
+      <button class="btn btn-outline btn-block" style="margin-top:9px;" onclick="exitSharedView()">${hasExisting ? 'Cancel — keep what I have' : 'Cancel'}</button>
+    </div>`;
+}
+
+function confirmImportBackup() {
+  if (!pendingImport) return;
+  const existing = localStorage.getItem(STORAGE_KEY);
+  if (existing) localStorage.setItem(STORAGE_KEY + '-pre-import', existing);
+  localStorage.setItem(STORAGE_KEY, pendingImport);
+  location.hash = '';
+  location.reload();
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Utility
 // ═══════════════════════════════════════════════════════════════════
 
@@ -2025,8 +2152,9 @@ function esc(s) {
 // Boot
 // ═══════════════════════════════════════════════════════════════════
 
-// A "#hours=…" link renders the read-only shared page instead of the app
-if (!tryRenderSharedView()) {
+// A "#backup=…" link renders the transfer flow; a "#hours=…" link renders
+// the read-only shared page. Otherwise the normal app boots.
+if (!tryRenderBackupImport() && !tryRenderSharedView()) {
   refreshDays();
   selectedDayIdx = defaultSelectedDay();
   updateHeader();
