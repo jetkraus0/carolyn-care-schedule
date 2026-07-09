@@ -2052,20 +2052,53 @@ async function gunzipToString(bytes) {
   return new TextDecoder().decode(await new Response(stream).arrayBuffer());
 }
 
-async function shareBackupLink() {
-  const json = JSON.stringify(state);
-  let frag;
-  try {
-    if (typeof CompressionStream !== 'undefined') frag = 'gz.' + bytesToB64url(await gzipString(json));
-    else frag = 'js.' + b64urlEncode(json);
-  } catch(_) {
-    frag = 'js.' + b64urlEncode(json);
-  }
-  const url = location.origin + location.pathname + '#backup=' + frag;
-  const msg = url.length > 8000
+function backupMsgFor(url) {
+  return url.length > 8000
     ? `✓ Link copied — it's long (${url.length} characters), so send it by email rather than text.`
     : '✓ Transfer link copied — paste it into a text or email.';
-  copyString(url, 'backupConfirm', msg);
+}
+
+// Honest fallback: show the link in a box to copy by hand rather than
+// pretending the clipboard write worked.
+function showBackupLinkFallback(url) {
+  const c = document.getElementById('backupConfirm');
+  if (!c) return;
+  c.innerHTML = `Couldn't reach the clipboard — press and hold the box below, then Select All and Copy:
+    <input readonly value="${esc(url)}" onclick="this.select()"
+      style="width:100%;margin-top:6px;border:1.5px solid var(--border);border-radius:9px;padding:9px;font-size:.8rem;color:var(--text);" />`;
+}
+
+function shareBackupLink() {
+  const base = location.origin + location.pathname + '#backup=';
+  // Safari only allows clipboard writes during the tap itself, but the
+  // compressed link takes async work to build. Hand the clipboard a
+  // ClipboardItem promise synchronously so the tap stays "live" while
+  // compression finishes — otherwise the write silently fails and the
+  // clipboard keeps whatever was in it before.
+  if (typeof CompressionStream !== 'undefined' && typeof ClipboardItem !== 'undefined'
+      && navigator.clipboard && navigator.clipboard.write) {
+    const urlPromise = gzipString(JSON.stringify(state))
+      .then(bytes => base + 'gz.' + bytesToB64url(bytes));
+    let item = null;
+    try {
+      item = new ClipboardItem({ 'text/plain': urlPromise.then(u => new Blob([u], { type:'text/plain' })) });
+    } catch(_) {}
+    if (item) {
+      navigator.clipboard.write([item]).then(
+        () => urlPromise.then(u => {
+          const c = document.getElementById('backupConfirm');
+          if (c) { c.textContent = backupMsgFor(u); setTimeout(()=> { if (c.textContent === backupMsgFor(u)) c.textContent = ''; }, 6000); }
+        }),
+        () => urlPromise.then(showBackupLinkFallback,
+              () => showBackupLinkFallback(base + 'js.' + b64urlEncode(JSON.stringify(state))))
+      );
+      return;
+    }
+  }
+  // No promise-based clipboard support: build the (longer) uncompressed
+  // link synchronously so the copy happens inside the tap.
+  const url = base + 'js.' + b64urlEncode(JSON.stringify(state));
+  copyString(url, 'backupConfirm', backupMsgFor(url));
 }
 
 function tryRenderBackupImport() {
