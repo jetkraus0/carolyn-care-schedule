@@ -228,6 +228,15 @@
     .hours-note{flex:1;min-width:130px;border:1.5px solid var(--border);border-radius:9px;padding:8px;}
     .hours-grand{padding:12px 2px 2px;font-size:.95rem;font-weight:700;text-align:right;}
     .hours-skip{font-size:.78rem;color:var(--yellow-fg);margin-top:8px;font-weight:600;}
+    .hours-pay{display:block;font-size:.85rem;font-weight:800;color:var(--green-fg);text-align:right;}
+    .hours-norate{font-size:.78rem;color:var(--muted);margin-top:8px;font-style:italic;}
+
+    /* ── Pay rates (Set-Up) ── */
+    .rate-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--gray-bg);}
+    .rate-row:last-of-type{border-bottom:none;}
+    .rate-name{flex:1;font-weight:800;}
+    .rate-wrap{display:flex;align-items:center;gap:6px;font-size:.9rem;font-weight:600;color:var(--muted);}
+    .rate-wrap input{width:92px;border:1.5px solid var(--border);border-radius:9px;padding:9px;background:white;}
 
     /* ── Notes ── */
     .notes-area{width:100%;border:1.5px solid var(--border);border-radius:11px;padding:12px 13px;background:#fffdf5;min-height:84px;resize:vertical;line-height:1.5;color:var(--text);}
@@ -378,6 +387,12 @@
         <input type="text" id="newName" placeholder="Type a name…" />
         <button class="btn" onclick="addCaregiver()">Add</button>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">💵 Pay rates</div>
+      <div class="card-help">Dollars per hour for each caregiver — the Hours page multiplies these by their hours to figure each pay period's payment. Leave blank for anyone who isn't paid hourly. Same rates on both schedules.</div>
+      <div id="ratesList"></div>
     </div>
 
     <div class="card">
@@ -614,6 +629,7 @@ function loadState() {
       if (!Array.isArray(s.loa))              s.loa         = [];
       if (s.scheduleView !== 'calendar')      s.scheduleView = 'list';
       if (!s.hoursAdj)                        s.hoursAdj    = {};
+      if (!s.rates)                           s.rates       = {};
       return s;
     }
   } catch(_) {}
@@ -627,6 +643,7 @@ function loadState() {
     loa         : [],
     scheduleView: 'list',
     hoursAdj    : {},
+    rates       : {},
     activePlan  : 'a',
     plans: {
       a: { name:'Regular schedule',  shiftDefs:deepClone(DEFAULT_SHIFT_DEFS), pattern:deepClone(DEFAULT_PATTERN), assignments:{}, dayOverrides:{} },
@@ -1178,6 +1195,7 @@ function addCaregiver() {
     renderCaregivers();
     renderPatternEditor();
     renderLoaEditor();
+    renderRates();
     renderSchedule();
     renderText();
     refreshCaregiverPick();
@@ -1190,6 +1208,7 @@ function removeCaregiver(name) {
   if (!confirm(`Remove "${name}" from the caregiver list?\nTheir shifts in both schedules will be marked as needing someone.`)) return;
   state.caregivers = state.caregivers.filter(c => c !== name);
   state.loa = state.loa.filter(l => l.name !== name);
+  delete state.rates[name];
   for (const pk in state.plans) {
     const as = state.plans[pk].assignments;
     for (const k in as) { if (as[k] === name) delete as[k]; }
@@ -1198,6 +1217,7 @@ function removeCaregiver(name) {
   renderCaregivers();
   renderPatternEditor();
   renderLoaEditor();
+  renderRates();
   renderSchedule();
   renderText();
   refreshCaregiverPick();
@@ -1622,6 +1642,14 @@ function shiftHours(timeStr) {
 
 function fmtH(h) { return String(Math.round(h * 100) / 100); }
 
+function fmtMoney(x) {
+  const v = Math.round(x * 100) / 100;
+  try { return v.toLocaleString('en-US', { style:'currency', currency:'USD' }); }
+  catch(_) { return '$' + v.toFixed(2); }
+}
+
+function rateFor(name) { return state.rates[name] > 0 ? state.rates[name] : 0; }
+
 // Adjustments are stored per pay period, per plan, per caregiver
 function adjKey(name) { return `${state.startDate}|${state.activePlan}|${name}`; }
 
@@ -1653,20 +1681,28 @@ function renderHours() {
   const listEl = document.getElementById('hoursList');
   if (!listEl) return;
   const { per, skipped } = computeHours();
-  let grand = 0;
+  let grandH = 0, grandPay = 0;
+  const noRate = [];
   const rows = state.caregivers.map(n => {
     const p = per[n];
     const total = p.sched + p.adj;
-    grand += total;
+    const rate  = rateFor(n);
+    const pay   = total * rate;
+    grandH += total;
+    grandPay += pay;
+    if (total > 0 && !rate) noRate.push(n);
     const shiftRows = p.shifts.map(x =>
       `<div class="hours-shift">${esc(x.date)} · ${esc(x.label)} ${esc(x.time)} — <b>${fmtH(x.h)} h</b></div>`).join('');
     return `
       <div class="hours-row">
         <div class="hours-top">
           <span class="hours-name">${esc(n)}</span>
-          <span class="hours-total">${fmtH(total)} h</span>
+          <span>
+            <span class="hours-total">${fmtH(total)} h</span>
+            ${rate ? `<span class="hours-pay">${fmtMoney(pay)}</span>` : ''}
+          </span>
         </div>
-        <div class="hours-sub">${fmtH(p.sched)} h scheduled${p.adj ? ` ${p.adj > 0 ? '+' : ''}${fmtH(p.adj)} h adjustment` : ''}</div>
+        <div class="hours-sub">${fmtH(p.sched)} h scheduled${p.adj ? ` ${p.adj > 0 ? '+' : ''}${fmtH(p.adj)} h adjustment` : ''}${rate ? ` · ${fmtMoney(rate)}/h` : ''}</div>
         ${p.shifts.length ? `<details class="hours-shifts"><summary>${p.shifts.length} shift${p.shifts.length === 1 ? '' : 's'} ▾</summary>${shiftRows}</details>` : ''}
         <div class="hours-adj-row">
           <label>Adjust:</label>
@@ -1676,10 +1712,14 @@ function renderHours() {
         </div>
       </div>`;
   }).join('');
-  listEl.innerHTML = rows + `<div class="hours-grand">Everyone together: <b>${fmtH(grand)} h</b></div>`;
+  listEl.innerHTML = rows + `<div class="hours-grand">Everyone together: <b>${fmtH(grandH)} h${grandPay ? ' · ' + fmtMoney(grandPay) : ''}</b></div>`;
   const skipEl = document.getElementById('hoursSkipped');
-  if (skipEl) skipEl.textContent = skipped.length
-    ? '⚠ Not counted (time unclear): ' + skipped.join(' · ') : '';
+  if (skipEl) {
+    const parts = [];
+    if (skipped.length) parts.push('⚠ Not counted (time unclear): ' + skipped.join(' · '));
+    if (noRate.length)  parts.push('No pay rate set for: ' + noRate.join(', ') + ' — add rates in Set-Up.');
+    skipEl.textContent = parts.join('  ');
+  }
   renderHoursText(per);
 }
 
@@ -1707,18 +1747,48 @@ function renderHoursText(per) {
   const el = document.getElementById('textOutHours');
   if (!el) return;
   const lines = [`Caregiver hours — ${periodLabel()}`, ...planSubtitleLines(), ''];
-  let grand = 0;
+  let grandH = 0, grandPay = 0;
   state.caregivers.forEach(n => {
     const p = per[n];
     const t = p.sched + p.adj;
     if (!t && !p.shifts.length) return;
-    grand += t;
+    const rate = rateFor(n);
+    grandH += t;
+    grandPay += t * rate;
     let line = `${n}: ${fmtH(t)} h`;
+    if (rate) line += ` × ${fmtMoney(rate)}/h = ${fmtMoney(t * rate)}`;
     if (p.adj) line += ` (${fmtH(p.sched)} scheduled ${p.adj > 0 ? '+' : ''}${fmtH(p.adj)}${p.note ? ' — ' + p.note : ''})`;
     lines.push(line);
   });
-  lines.push('', `Total: ${fmtH(grand)} h`);
+  lines.push('', `Total: ${fmtH(grandH)} h${grandPay ? ` · Total pay: ${fmtMoney(grandPay)}` : ''}`);
   el.textContent = lines.join('\n');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Pay rates (Set-Up tab, shared by both plans)
+// ═══════════════════════════════════════════════════════════════════
+
+function renderRates() {
+  const el = document.getElementById('ratesList');
+  if (!el) return;
+  el.innerHTML = state.caregivers.map(n => `
+    <div class="rate-row">
+      <span class="rate-name">${esc(n)}</span>
+      <span class="rate-wrap">$
+        <input type="number" step="0.25" min="0" value="${state.rates[n] > 0 ? state.rates[n] : ''}"
+               placeholder="0.00" onchange="updateRate('${esc(n)}', this.value)" />
+        /hour
+      </span>
+    </div>`).join('');
+}
+
+function updateRate(name, val) {
+  const v = parseFloat(val);
+  if (v > 0) state.rates[name] = v;
+  else       delete state.rates[name];
+  save();
+  renderRates();
+  renderHours();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1862,6 +1932,7 @@ updateHeader();
 updatePlanUI();
 renderCaregivers();
 renderLoaEditor();
+renderRates();
 renderShiftTemplateEditor();
 renderPatternEditor();
 renderSchedule();
