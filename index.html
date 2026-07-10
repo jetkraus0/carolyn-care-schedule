@@ -242,6 +242,21 @@
     .notes-area{width:100%;border:1.5px solid var(--border);border-radius:11px;padding:12px 13px;background:#fffdf5;min-height:84px;resize:vertical;line-height:1.5;color:var(--text);}
     .notes-area:focus{border-color:var(--blue);outline:none;}
 
+    /* ── Automatic sync (Set-Up) ── */
+    .sync-status{font-size:.85rem;font-weight:700;color:var(--muted);margin:2px 0 12px;min-height:20px;}
+    .sync-or{text-align:center;font-size:.8rem;color:var(--muted);margin:10px 0;font-weight:700;}
+    .sync-form{margin-top:4px;}
+    .sync-form label{font-size:.9rem;font-weight:700;}
+    .sync-form input{width:100%;border:1.5px solid var(--border);border-radius:11px;padding:11px 13px;margin:6px 0 10px;}
+    .sync-btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+    .sync-btn-row .btn{flex:1;}
+    .sync-err{font-size:.85rem;color:var(--red-fg);font-weight:600;min-height:20px;margin-top:8px;}
+    .sync-steps{font-size:.85rem;color:var(--muted);line-height:1.65;margin:10px 0;padding-left:20px;}
+    .sync-rules{background:#f8fafc;border:1.5px solid var(--border);border-radius:10px;padding:10px;font-family:'Courier New',monospace;font-size:.7rem;white-space:pre;overflow-x:auto;margin:8px 0;}
+    .sync-details{margin:4px 0 14px;}
+    .sync-details summary{cursor:pointer;font-weight:700;color:var(--blue-dark);font-size:.9rem;padding:4px 0;list-style:none;user-select:none;}
+    .sync-details summary::-webkit-details-marker{display:none;}
+
     /* ── Toast ── */
     #toast{position:fixed;bottom:calc(84px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#1e293b;color:white;padding:9px 20px;border-radius:22px;font-size:.85rem;font-weight:700;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60;white-space:nowrap;}
     #toast.show{opacity:.93;}
@@ -435,9 +450,11 @@
       <button class="btn btn-outline btn-block" onclick="confirmResetToPattern()">Re-fill schedule from the normal week</button>
     </div>
 
+    <div class="card" id="syncCard"></div>
+
     <div class="card">
       <div class="card-title">🔁 Move to another device / share everything</div>
-      <div class="card-help">Copies one link that holds the <b>entire</b> schedule — both plans, caregivers, rates, away dates, notes, and history. Open it on another phone or send it to family; they'll be asked before it replaces anything on their device. It makes a copy: changes on one device don't show up on the other.</div>
+      <div class="card-help">Copies one link that holds the <b>entire</b> schedule — both plans, caregivers, rates, away dates, notes, and history. Open it on another phone or send it to family; they'll be asked before it replaces anything on their device. <span id="transferSyncNote"><!-- filled in by renderSyncCard --></span></div>
       <button class="copy-btn" onclick="shareBackupLink()">🔁&nbsp; Copy transfer link (the whole schedule)</button>
       <div class="copy-confirm" id="backupConfirm"></div>
     </div>
@@ -532,6 +549,10 @@ function isCarolOvernightDate(dateKey) {
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const DOW_ORDER = [1,2,3,4,5,6,0]; // Mon-first display order
 const STORAGE_KEY = 'carolyn-care-v4';
+// Must be initialized before `syncMeta` below — a later `const` would still
+// be in its dead zone when loadSyncMeta() runs, and the resulting (caught)
+// ReferenceError would silently reset the sync bookkeeping every load.
+const SYNC_META_KEY = 'carolyn-care-syncmeta';
 
 // ═══════════════════════════════════════════════════════════════════
 // State
@@ -542,6 +563,7 @@ let DAYS  = [];
 let openOnlyView = false;   // schedule tab filter (not saved — resets each visit)
 let selectedDayIdx = 0;     // day shown under the calendar grid
 let pendingImport = null;   // JSON string waiting for the user to confirm a transfer
+let syncMeta = loadSyncMeta(); // per-device sync bookkeeping — never travels between devices
 
 // The active plan: every schedule read/write goes through here.
 function plan() { return state.plans[state.activePlan]; }
@@ -553,9 +575,33 @@ function plan() { return state.plans[state.activePlan]; }
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const s = JSON.parse(raw);
+    if (raw) return normalizeState(JSON.parse(raw));
+  } catch(_) {}
+  // Fresh install
+  const st = {
+    caregivers  : [...DEFAULT_CAREGIVERS],
+    startDate   : '2026-06-24',
+    signoff     : '',
+    msgOpenOnly : false,
+    notes       : '',
+    loa         : [],
+    scheduleView: 'list',
+    hoursAdj    : {},
+    rates       : {},
+    activePlan  : 'a',
+    plans: {
+      a: { name:'Regular schedule',  shiftDefs:deepClone(DEFAULT_SHIFT_DEFS), pattern:deepClone(DEFAULT_PATTERN), assignments:{}, dayOverrides:{} },
+      b: { name:'If Bob stays over', shiftDefs:deepClone(BOB_SHIFT_DEFS),     pattern:deepClone(BOB_PATTERN),     assignments:{}, dayOverrides:{} },
+    },
+  };
+  applyPresetsToPlan(st, st.plans.a);
+  applyPresetsToPlan(st, st.plans.b);
+  return st;
+}
 
+// Migrations + defaults for a saved state object — whether it came from
+// this device's storage, a transfer link, or the sync database.
+function normalizeState(s) {
       // Migrate: two schedule plans (regular + "if Bob stays over" backup).
       // Pre-plan saves kept shifts/pattern/assignments at the top level —
       // move them into plans.a untouched and seed plans.b with Bob's slots.
@@ -641,43 +687,28 @@ function loadState() {
       if (s.scheduleView !== 'calendar')      s.scheduleView = 'list';
       if (!s.hoursAdj)                        s.hoursAdj    = {};
       if (!s.rates)                           s.rates       = {};
+      if (s.sync && !(typeof s.sync.u === 'string' && typeof s.sync.c === 'string')) delete s.sync;
       return s;
-    }
-  } catch(_) {}
-  // Fresh install
-  const st = {
-    caregivers  : [...DEFAULT_CAREGIVERS],
-    startDate   : '2026-06-24',
-    signoff     : '',
-    msgOpenOnly : false,
-    notes       : '',
-    loa         : [],
-    scheduleView: 'list',
-    hoursAdj    : {},
-    rates       : {},
-    activePlan  : 'a',
-    plans: {
-      a: { name:'Regular schedule',  shiftDefs:deepClone(DEFAULT_SHIFT_DEFS), pattern:deepClone(DEFAULT_PATTERN), assignments:{}, dayOverrides:{} },
-      b: { name:'If Bob stays over', shiftDefs:deepClone(BOB_SHIFT_DEFS),     pattern:deepClone(BOB_PATTERN),     assignments:{}, dayOverrides:{} },
-    },
-  };
-  applyPresetsToPlan(st, st.plans.a);
-  applyPresetsToPlan(st, st.plans.b);
-  return st;
+}
+
+function persistLocal() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
 function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  persistLocal();
   showToast();
+  noteLocalEdit();
 }
 
 let toastTimer = null;
-function showToast() {
+function showToast(msg) {
   const el = document.getElementById('toast');
   if (!el || !el.classList) return;
+  el.textContent = msg || 'Saved ✓';
   el.classList.add('show');
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 1400);
+  toastTimer = setTimeout(() => el.classList.remove('show'), msg ? 2400 : 1400);
 }
 
 function deepClone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -2077,8 +2108,7 @@ function shareBackupLink() {
   // clipboard keeps whatever was in it before.
   if (typeof CompressionStream !== 'undefined' && typeof ClipboardItem !== 'undefined'
       && navigator.clipboard && navigator.clipboard.write) {
-    const urlPromise = gzipString(JSON.stringify(state))
-      .then(bytes => base + 'gz.' + bytesToB64url(bytes));
+    const urlPromise = encodeStateStr(JSON.stringify(state)).then(s => base + s);
     let item = null;
     try {
       item = new ClipboardItem({ 'text/plain': urlPromise.then(u => new Blob([u], { type:'text/plain' })) });
@@ -2124,18 +2154,14 @@ async function renderBackupImport(kind, data) {
 
   let json;
   try {
-    if (kind === 'gz') {
-      if (typeof DecompressionStream === 'undefined')
-        return fail("This browser is too old to open compressed transfer links — update the phone's software and try again.");
-      json = await gunzipToString(b64urlToBytes(data));
-    } else {
-      json = b64urlDecode(data);
-    }
+    if (kind === 'gz' && typeof DecompressionStream === 'undefined')
+      return fail("This browser is too old to open compressed transfer links — update the phone's software and try again.");
+    json = await decodeStateStr(kind + '.' + data);
   } catch(_) { return fail('The link looks incomplete — make sure the whole link was copied and sent.'); }
 
   let st;
   try { st = JSON.parse(json); } catch(_) { return fail('The link looks incomplete — make sure the whole link was copied and sent.'); }
-  if (!st || !st.plans || !Array.isArray(st.caregivers)) return fail("This link doesn't contain a schedule.");
+  if (!looksLikeSchedule(st)) return fail("This link doesn't contain a schedule.");
 
   pendingImport = json;
   const hasExisting = !!localStorage.getItem(STORAGE_KEY);
@@ -2166,9 +2192,558 @@ function confirmImportBackup() {
   if (!pendingImport) return;
   const existing = localStorage.getItem(STORAGE_KEY);
   if (existing) localStorage.setItem(STORAGE_KEY + '-pre-import', existing);
-  localStorage.setItem(STORAGE_KEY, pendingImport);
+  let importJson = pendingImport;
+  try {
+    const st = JSON.parse(pendingImport);
+    // A link made on a device without sync must not silently disconnect
+    // this device: keep the existing connection unless the link brings
+    // its own. (A link's own connection wins — that's how devices join.)
+    if (!st.sync && state.sync) { st.sync = state.sync; importJson = JSON.stringify(st); }
+  } catch(_) {}
+  localStorage.setItem(STORAGE_KEY, importJson);
+  // The person chose this copy on purpose, so if it (or this device) has
+  // automatic sync, treat it as the newest version: push it to the cloud
+  // on reload instead of letting the cloud copy overwrite it right back.
+  syncMeta.rev = 0;
+  syncMeta.baseDevice = '';
+  syncMeta.dirty = true;
+  syncMeta.editedAt = Date.now();
+  saveSyncMeta();
   location.hash = '';
   location.reload();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Automatic sync — one shared copy of the schedule in a tiny free
+// cloud database (Firebase Realtime Database), reached through an
+// unguessable secret path. No accounts, no logins: knowing the secret
+// code IS the key, like the transfer link. Every connected device
+// pushes its edits and picks up everyone else's automatically.
+//
+// Cloud document at  <db>/care/<code>.json :
+//   { rev, updatedAt, device, state }   state = 'gz.'/'js.' + b64url
+//
+// Per-device bookkeeping lives in SYNC_META_KEY (localStorage):
+//   { device, rev, editedAt, dirty }
+//   rev      = cloud revision our local copy is based on
+//   editedAt = when the schedule was last edited *on this device*
+//   dirty    = local edits not yet pushed
+//
+// Conflicts resolve newest-edit-wins; the losing copy is kept at
+// STORAGE_KEY + '-pre-sync' as an emergency backup.
+// ═══════════════════════════════════════════════════════════════════
+
+const FIREBASE_RULES = `{
+  "rules": {
+    "care": {
+      "$code": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['rev','updatedAt','state']) && newData.child('state').isString()"
+      }
+    }
+  }
+}`;
+
+let syncStatusText = '';
+let syncUiMode = 'idle';      // 'idle' | 'setup' | 'connect' (only while not configured)
+let syncBusy = false, syncQueued = false;
+let syncPushTimer = null, syncRetryTimer = null, adoptRetryTimer = null;
+let syncEs = null, syncStreamRetryTimer = null;
+let syncListenersOn = false;
+
+function randCode(n) {
+  // ~5.8 bits/char; 22 chars ≈ 128 bits. The tiny modulo bias is immaterial.
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  return Array.from(crypto.getRandomValues(new Uint8Array(n)), b => chars[b % chars.length]).join('');
+}
+
+function loadSyncMeta() {
+  try {
+    const m = JSON.parse(localStorage.getItem(SYNC_META_KEY));
+    if (m && typeof m.device === 'string') {
+      return { device: m.device, rev: m.rev || 0, baseDevice: m.baseDevice || '',
+               editedAt: m.editedAt || 0, dirty: !!m.dirty };
+    }
+  } catch(_) {}
+  return { device: 'd-' + randCode(8), rev: 0, baseDevice: '', editedAt: 0, dirty: false };
+}
+
+// True when a cloud doc is the exact write our local copy is based on.
+// Rev alone isn't enough: two devices can race GET-then-PUT and publish
+// the same rev number, so the writer's device id is part of the identity.
+function sameDoc(doc) {
+  return (doc.rev || 0) === syncMeta.rev && (doc.device || '') === (syncMeta.baseDevice || '');
+}
+
+function buildSyncDoc(baseRev, encodedState) {
+  return {
+    rev      : (baseRev || 0) + 1,
+    updatedAt: syncMeta.editedAt || Date.now(),
+    device   : syncMeta.device,
+    state    : encodedState,
+  };
+}
+
+function saveSyncMeta() {
+  try { localStorage.setItem(SYNC_META_KEY, JSON.stringify(syncMeta)); } catch(_) {}
+}
+
+function syncCfg() {
+  return (state.sync && state.sync.u && state.sync.c) ? state.sync : null;
+}
+
+function syncDocUrl(cfg) {
+  const c = cfg || syncCfg();
+  return c ? c.u + '/care/' + encodeURIComponent(c.c) + '.json' : null;
+}
+
+// The schedule travels as one JSON string, gzip-compressed when the
+// browser can (same 'gz.'/'js.' scheme as the transfer links).
+async function encodeStateStr(json) {
+  if (typeof CompressionStream !== 'undefined')
+    return 'gz.' + bytesToB64url(await gzipString(json));
+  return 'js.' + b64urlEncode(json);
+}
+
+async function decodeStateStr(s) {
+  if (s.slice(0,3) === 'gz.') return gunzipToString(b64urlToBytes(s.slice(3)));
+  if (s.slice(0,3) === 'js.') return b64urlDecode(s.slice(3));
+  throw new Error('unknown state encoding');
+}
+
+function setSyncStatus(msg) {
+  syncStatusText = msg;
+  const el = document.getElementById('syncStatusLine');
+  if (el) el.textContent = msg;
+}
+
+// Called from save(): remember the edit and push it soon (grouping
+// rapid-fire edits into one write).
+function noteLocalEdit() {
+  if (!syncCfg()) return;
+  syncMeta.dirty = true;
+  // Monotonic: never stamp at-or-before the last edit or adopted doc, so a
+  // slow clock can't make an edit made *after* seeing a cloud copy lose to it.
+  syncMeta.editedAt = Math.max(Date.now(), (syncMeta.editedAt || 0) + 1);
+  saveSyncMeta();
+  setSyncStatus('Syncing…');
+  if (syncPushTimer) clearTimeout(syncPushTimer);
+  syncPushTimer = setTimeout(() => { syncPushTimer = null; syncNow(); }, 900);
+}
+
+// The one reconciliation path. Everything — boot, the live stream,
+// coming back online, tab focus, debounced saves — funnels through
+// here, one run at a time, so pulls and pushes can't interleave.
+async function syncNow() {
+  if (!syncCfg()) return;
+  if (syncBusy) { syncQueued = true; return; }
+  syncBusy = true;
+  try {
+    const resp = await fetch(syncDocUrl(), { cache:'no-store' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const doc = await resp.json();
+    let adoptDeferred = false;
+
+    if (doc && typeof doc.state === 'string') {
+      if (syncMeta.dirty || !sameDoc(doc)) {
+        let remoteJson = null;
+        try { remoteJson = await decodeStateStr(doc.state); } catch(_) {}
+        if (remoteJson === null) {
+          if (doc.state.slice(0,3) === 'gz.' && typeof DecompressionStream === 'undefined') {
+            // Never push over (or claim to be in sync with) a doc this
+            // browser simply can't read.
+            setSyncStatus('This device is too old to read the shared schedule — update its software to keep syncing.');
+            return;
+          }
+          syncMeta.dirty = true;   // unreadable/corrupt cloud doc — heal it with ours
+        } else if (remoteJson === localStorage.getItem(STORAGE_KEY)) {
+          // Same content (e.g. the echo of our own write) — just align
+          syncMeta.rev = doc.rev || 0;
+          syncMeta.baseDevice = doc.device || '';
+          syncMeta.dirty = false;
+          saveSyncMeta();
+        } else if (!syncMeta.dirty && (doc.updatedAt || 0) < syncMeta.editedAt) {
+          // The cloud went *backwards* (e.g. a stale tab's parting write
+          // landed late) — restore the newer state instead of adopting.
+          syncMeta.dirty = true;
+        } else if (!syncMeta.dirty || (doc.updatedAt || 0) > syncMeta.editedAt) {
+          const res = adoptRemote(remoteJson, doc);
+          if (res === 'deferred') adoptDeferred = true;
+          else if (res === 'failed') syncMeta.dirty = true;   // broken doc — heal it
+        }
+        // else: our unpushed edits are newer — fall through and push
+      }
+    } else if (localStorage.getItem(STORAGE_KEY)) {
+      syncMeta.dirty = true;   // nothing in the cloud yet — seed it
+    }
+
+    if (syncMeta.dirty && !adoptDeferred) {
+      await pushStateDoc(doc && doc.rev ? doc.rev : syncMeta.rev);
+    }
+    if (!syncMeta.dirty && !adoptDeferred) setSyncStatus('✓ Synced — up to date on every device');
+  } catch(_) {
+    setSyncStatus(typeof navigator !== 'undefined' && navigator.onLine === false
+      ? 'Offline — changes are saved here and will sync when internet is back'
+      : "Can't reach the sync database right now — will keep trying");
+    scheduleSyncRetry();
+  } finally {
+    syncBusy = false;
+    if (syncQueued) { syncQueued = false; setTimeout(syncNow, 50); }
+  }
+}
+
+async function pushStateDoc(baseRev) {
+  const editedAtStart = syncMeta.editedAt;
+  const doc = buildSyncDoc(baseRev, await encodeStateStr(JSON.stringify(state)));
+  const resp = await fetch(syncDocUrl(), {
+    method:'PUT', cache:'no-store',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify(doc),
+  });
+  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+  syncMeta.rev = doc.rev;
+  syncMeta.baseDevice = syncMeta.device;
+  // An edit that landed while the push was in flight keeps dirty=true; the
+  // debounce timer that edit armed will push it.
+  if (syncMeta.editedAt === editedAtStart) syncMeta.dirty = false;
+  saveSyncMeta();
+}
+
+// A plausible schedule state? (shared by sync adoption and link imports)
+function looksLikeSchedule(st) {
+  return !!(st && st.plans && Array.isArray(st.caregivers));
+}
+
+// Replace this device's schedule with the cloud copy.
+// Returns 'applied', 'deferred' (someone is mid-typing), or 'failed'.
+function adoptRemote(json, doc, force) {
+  if (!force && isTypingInField()) {
+    if (!adoptRetryTimer) adoptRetryTimer = setTimeout(() => { adoptRetryTimer = null; syncNow(); }, 2500);
+    return 'deferred';
+  }
+  let parsed;
+  try { parsed = JSON.parse(json); } catch(_) { return 'failed'; }
+  if (!looksLikeSchedule(parsed)) return 'failed';
+  parsed.sync = state.sync;   // keep THIS device's own connection settings
+  let next;
+  try { next = normalizeState(parsed); } catch(_) { return 'failed'; }
+  // Back up the *live* state, not the last-persisted copy — text typed since
+  // the last blur exists only in memory and would otherwise vanish entirely.
+  try { localStorage.setItem(STORAGE_KEY + '-pre-sync', JSON.stringify(state)); } catch(_) {}
+  const keepView = state.startDate === next.startDate && state.activePlan === next.activePlan;
+  state = next;
+  persistLocal();
+  syncMeta.rev = doc.rev || 0;
+  syncMeta.baseDevice = doc.device || '';
+  syncMeta.dirty = false;
+  syncMeta.editedAt = doc.updatedAt || 0;
+  saveSyncMeta();
+  refreshDays();
+  // Keep the person's place (selected day, open-shifts filter) unless the
+  // update moved the schedule to a different period or plan.
+  if (!keepView) {
+    selectedDayIdx = defaultSelectedDay();
+    openOnlyView = false;
+  }
+  renderAll();
+  showToast('Updated from your other device ✓');
+  return 'applied';
+}
+
+// Don't yank the page out from under someone mid-sentence: hold off
+// while a typing field has focus AND keys were pressed moments ago.
+// Focus alone isn't enough — desktop browsers park focus in the last
+// input indefinitely, which would stall updates forever.
+let lastTypedAt = 0;
+function isTypingInField() {
+  const el = typeof document !== 'undefined' && document.activeElement;
+  if (!el || !el.tagName) return false;
+  const typing = el.tagName === 'TEXTAREA' ||
+    (el.tagName === 'INPUT' && !['checkbox','date','radio'].includes(el.type));
+  return typing && (Date.now() - lastTypedAt) < 3000;
+}
+
+function scheduleSyncRetry() {
+  if (syncRetryTimer) return;
+  syncRetryTimer = setTimeout(() => { syncRetryTimer = null; syncNow(); }, 30000);
+}
+
+// ── Live updates: Firebase's REST API speaks Server-Sent Events ──
+
+function ensureSyncStream() {
+  if (!syncCfg() || typeof EventSource === 'undefined') return;
+  if (syncEs && syncEs.readyState !== 2) return;   // still open/connecting
+  closeSyncStream();
+  let es;
+  try { es = new EventSource(syncDocUrl()); } catch(_) { return; }
+  syncEs = es;
+  const onData = e => {
+    try {
+      const m = JSON.parse(e.data);
+      if (m && m.path === '/' && m.data) {
+        const doc = m.data;
+        // Skip our own write's echo, and docs we've already applied
+        if (sameDoc(doc) && (!syncMeta.dirty || doc.device === syncMeta.device)) return;
+      }
+    } catch(_) {}
+    syncNow();
+  };
+  es.addEventListener('put', onData);
+  es.addEventListener('patch', onData);
+  es.addEventListener('cancel', scheduleStreamReconnect);
+  es.addEventListener('auth_revoked', scheduleStreamReconnect);
+  es.onerror = () => { if (es.readyState === 2) scheduleStreamReconnect(); };
+}
+
+function closeSyncStream() {
+  if (syncEs) { try { syncEs.close(); } catch(_) {} syncEs = null; }
+}
+
+function scheduleStreamReconnect() {
+  if (syncStreamRetryTimer) return;
+  syncStreamRetryTimer = setTimeout(() => { syncStreamRetryTimer = null; ensureSyncStream(); }, 15000);
+}
+
+// Last-gasp flush when the tab is hidden or closed: a keepalive PUT
+// with the synchronous (uncompressed) encoding, since there's no time
+// to await gzip. If it lands, the next sync recognizes the content
+// and tidies the bookkeeping.
+let lastBeaconEditedAt = 0;
+function flushSyncBeacon() {
+  if (!syncCfg() || !syncMeta.dirty) return;
+  if (syncMeta.editedAt === lastBeaconEditedAt) return;   // hidden+pagehide both fire — send once
+  lastBeaconEditedAt = syncMeta.editedAt;
+  try {
+    // 'js.' is encodeStateStr's no-CompressionStream fallback — used here
+    // because there's no time to await gzip during page teardown.
+    const doc = buildSyncDoc(syncMeta.rev, 'js.' + b64urlEncode(JSON.stringify(state)));
+    fetch(syncDocUrl(), {
+      method:'PUT', keepalive:true,
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(doc),
+    }).catch(() => {});
+  } catch(_) {}
+}
+
+function initSyncListenersOnce() {
+  if (syncListenersOn || typeof window === 'undefined' || !window.addEventListener) return;
+  syncListenersOn = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') { syncNow(); ensureSyncStream(); }
+    else flushSyncBeacon();
+  });
+  window.addEventListener('online',  () => { syncNow(); ensureSyncStream(); });
+  window.addEventListener('pagehide', flushSyncBeacon);
+  window.addEventListener('pageshow', e => { if (e.persisted) { syncNow(); ensureSyncStream(); } });
+  // A deferred cloud update gets its chance once typing stops
+  document.addEventListener('input', () => { lastTypedAt = Date.now(); }, true);
+  document.addEventListener('focusout', () => { if (adoptRetryTimer) syncNow(); });
+}
+
+function initSync() {
+  if (!syncCfg()) return;
+  setSyncStatus(syncMeta.dirty ? 'Syncing…' : 'Checking for updates…');
+  initSyncListenersOnce();
+  syncNow();
+  ensureSyncStream();
+}
+
+// ── Family code: the database address + secret path in one string ──
+
+function buildFamilyCode() {
+  const c = syncCfg();
+  return c ? 'CARE-' + b64urlEncode(JSON.stringify({ u:c.u, c:c.c })) : '';
+}
+
+function parseFamilyCode(raw) {
+  const m = String(raw || '').replace(/\s+/g, '').match(/^CARE-([A-Za-z0-9_-]+)$/i);
+  if (!m) return null;
+  try {
+    const o = JSON.parse(b64urlDecode(m[1]));
+    if (o && typeof o.u === 'string' && /^https?:\/\//i.test(o.u) &&
+        typeof o.c === 'string' && o.c.length >= 8) {
+      return { u: o.u.replace(/\/+$/, ''), c: o.c };
+    }
+  } catch(_) {}
+  return null;
+}
+
+// ── Set-Up card ──
+
+function setSyncUiMode(mode) {
+  syncUiMode = mode;
+  renderSyncCard();
+  const focusEl = document.getElementById(mode === 'setup' ? 'syncDbUrl' : 'syncCodeInput');
+  if (focusEl && focusEl.focus) focusEl.focus();
+}
+
+function renderSyncCard() {
+  const el = document.getElementById('syncCard');
+  if (!el) return;
+  const note = document.getElementById('transferSyncNote');
+  if (note) note.textContent = syncCfg()
+    ? 'Automatic sync is on, so a device that loads this link also joins the sync — after that it updates by itself.'
+    : "It makes a copy: changes on one device don't show up on the other.";
+
+  if (syncCfg()) {
+    el.innerHTML = `
+      <div class="card-title">🔄 Automatic sync — <span style="color:var(--green-fg);">on</span></div>
+      <div class="card-help">This device shares one schedule with every connected device. Edit anywhere and it updates everywhere by itself.</div>
+      <div class="sync-status" id="syncStatusLine">${esc(syncStatusText)}</div>
+      <button class="copy-btn" onclick="copySyncCode()">📋&nbsp; Copy sync code for another device</button>
+      <div class="copy-confirm" id="syncCodeConfirm"></div>
+      <div class="card-help">Two ways to connect the next device: send it the <b>transfer link</b> below (easiest — it joins the sync when loaded), or send this <b>sync code</b> and paste it under "Connect with a sync code" on that device.</div>
+      <button class="btn btn-outline btn-block" onclick="turnOffSync()">Turn off sync on this device</button>`;
+    return;
+  }
+
+  const intro = `
+    <div class="card-title">🔄 Automatic sync</div>
+    <div class="card-help">Keep the schedule identical on the Mac and the iPhone — edit in one place and it shows up on the other by itself. Free, and nobody needs an account or password. One person sets it up once; every other device just connects.</div>`;
+
+  if (syncUiMode === 'setup') {
+    el.innerHTML = `${intro}
+      <details class="sync-details">
+        <summary>▸ First time? Create the free sync database (one-time, ~5 minutes)</summary>
+        <ol class="sync-steps">
+          <li>On a computer, go to <b>console.firebase.google.com</b> and sign in with any Google account.</li>
+          <li>Click <b>Create a project</b>. Name it anything (e.g. <i>carolyn-care</i>). Turn <b>off</b> Google Analytics if asked.</li>
+          <li>In the left menu choose <b>Build → Realtime Database</b>, click <b>Create database</b>, pick the United States location, and start in <b>locked mode</b>.</li>
+          <li>Open the <b>Rules</b> tab, replace everything there with the rules below, and press <b>Publish</b>.</li>
+          <li>Back on the <b>Data</b> tab, copy the address that looks like <i>https://carolyn-care-default-rtdb.firebaseio.com</i> and paste it here.</li>
+        </ol>
+        <div class="sync-rules">${esc(FIREBASE_RULES)}</div>
+        <button class="btn btn-sm btn-outline" onclick="copyString(FIREBASE_RULES,'rulesCopyConfirm','✓ Rules copied — paste them into the Rules tab and press Publish.')">📋 Copy the rules</button>
+        <div class="copy-confirm" id="rulesCopyConfirm"></div>
+      </details>
+      <div class="sync-form">
+        <label for="syncDbUrl">Database address:</label>
+        <input id="syncDbUrl" placeholder="https://something-default-rtdb.firebaseio.com" autocomplete="off">
+        <div class="sync-btn-row">
+          <button class="btn" onclick="turnOnSync()">Turn on sync</button>
+          <button class="btn btn-outline" onclick="setSyncUiMode('idle')">Cancel</button>
+        </div>
+        <div class="sync-err" id="syncSetupErr"></div>
+      </div>`;
+    return;
+  }
+
+  if (syncUiMode === 'connect') {
+    el.innerHTML = `${intro}
+      <div class="sync-form">
+        <label for="syncCodeInput">Paste the sync code from the device that set this up:</label>
+        <input id="syncCodeInput" placeholder="CARE-…" autocomplete="off">
+        <div class="sync-btn-row">
+          <button class="btn" onclick="connectWithCodeSubmit()">Connect</button>
+          <button class="btn btn-outline" onclick="setSyncUiMode('idle')">Cancel</button>
+        </div>
+        <div class="sync-err" id="syncConnectErr"></div>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = `${intro}
+    <button class="btn btn-block" onclick="setSyncUiMode('setup')">Set up sync (first device)</button>
+    <div class="sync-or">— or —</div>
+    <button class="btn btn-outline btn-block" onclick="setSyncUiMode('connect')">Connect with a sync code</button>`;
+}
+
+async function turnOnSync() {
+  const inp = document.getElementById('syncDbUrl');
+  const err = document.getElementById('syncSetupErr');
+  const say = t => { if (err) err.textContent = t; };
+  let v = (inp ? inp.value : '').trim();
+  if (!v) { say('Paste the database address first (step 5 above).'); return; }
+  if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+  let base;
+  try { base = new URL(v).origin; } catch(_) { say("That doesn't look like a web address — it should start with https://"); return; }
+
+  say('Checking the database…');
+  const cfg = { u: base, c: randCode(22) };
+  try {
+    const resp = await fetch(syncDocUrl(cfg), { cache:'no-store' });
+    if (resp.status === 401 || resp.status === 403) {
+      say('The database said "no permission" — the Rules from step 4 probably weren\'t published. Fix the rules, press Publish, then try again.');
+      return;
+    }
+    if (!resp.ok) { say('The database answered with an error (' + resp.status + ') — double-check the address.'); return; }
+    await resp.json();
+  } catch(_) {
+    say("Couldn't reach that address — make sure it was copied completely and that this device is online.");
+    return;
+  }
+
+  enableSyncAsSeed(cfg);
+}
+
+// Turn sync on with this device's schedule as the copy that seeds the cloud.
+function enableSyncAsSeed(cfg) {
+  state.sync = cfg;
+  syncUiMode = 'idle';
+  save();                    // marks dirty; the debounced push sends it up
+  initSyncListenersOnce();
+  ensureSyncStream();
+  renderSyncCard();
+}
+
+async function connectWithCodeSubmit() {
+  const inp = document.getElementById('syncCodeInput');
+  const err = document.getElementById('syncConnectErr');
+  const say = t => { if (err) err.textContent = t; };
+  const cfg = parseFamilyCode(inp ? inp.value : '');
+  if (!cfg) { say("That code doesn't look right — it should start with CARE- . Copy the whole thing from the other device and try again."); return; }
+
+  say('Connecting…');
+  let doc;
+  try {
+    const resp = await fetch(syncDocUrl(cfg), { cache:'no-store' });
+    if (!resp.ok) { say('The sync database said no (' + resp.status + ') — copy the code again from the other device.'); return; }
+    doc = await resp.json();
+  } catch(_) { say("Couldn't reach the sync database — check the internet connection."); return; }
+
+  if (doc && typeof doc.state === 'string') {
+    let remoteJson = null;
+    try { remoteJson = await decodeStateStr(doc.state); } catch(_) {}
+    if (remoteJson === null) { say("Connected, but the shared schedule couldn't be read on this device. Update this device's software and try again."); return; }
+    const localRaw = localStorage.getItem(STORAGE_KEY);
+    if (localRaw && remoteJson !== localRaw &&
+        !confirm('Found the shared schedule. Load it on this device?\n\nThis replaces the schedule currently on this device. (The old one is kept as an emergency backup.)')) {
+      say(''); return;
+    }
+    if (inp && inp.blur) inp.blur();
+    state.sync = cfg;
+    if (adoptRemote(remoteJson, doc, true) !== 'applied') {
+      delete state.sync;
+      say("Something in the shared schedule couldn't be loaded — sync the other device once more, then retry.");
+      return;
+    }
+    syncUiMode = 'idle';
+    initSyncListenersOnce();
+    ensureSyncStream();
+    setSyncStatus('✓ Connected — up to date on every device');
+  } else {
+    if (!confirm("Nothing is in the shared sync yet. Use this device's schedule as the starting copy?")) { say(''); return; }
+    enableSyncAsSeed(cfg);
+  }
+}
+
+function copySyncCode() {
+  copyString(buildFamilyCode(), 'syncCodeConfirm',
+    '✓ Sync code copied — send it to the other device by text or email.');
+}
+
+function turnOffSync() {
+  if (!confirm('Turn off automatic sync on this device?\n\nThe schedule stays on this device, but it will stop updating to and from the other devices.')) return;
+  closeSyncStream();
+  if (syncPushTimer) { clearTimeout(syncPushTimer); syncPushTimer = null; }
+  delete state.sync;
+  persistLocal();            // deliberately NOT save(): nothing to push
+  syncMeta.dirty = false;
+  saveSyncMeta();
+  setSyncStatus('');
+  syncUiMode = 'idle';
+  renderSyncCard();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2194,11 +2769,9 @@ if (typeof window !== 'undefined' && window.addEventListener) {
   });
 }
 
-// A "#backup=…" link renders the transfer flow; a "#hours=…" link renders
-// the read-only shared page. Otherwise the normal app boots.
-if (!tryRenderBackupImport() && !tryRenderSharedView()) {
-  refreshDays();
-  selectedDayIdx = defaultSelectedDay();
+// Every part of the UI, from the current state. Used at boot and again
+// whenever automatic sync brings in a fresh copy from another device.
+function renderAll() {
   updateHeader();
   updatePlanUI();
   renderCaregivers();
@@ -2217,11 +2790,22 @@ if (!tryRenderBackupImport() && !tryRenderSharedView()) {
 
   renderText();
   refreshCaregiverPick();
+  renderSyncCard();
+}
+
+// A "#backup=…" link renders the transfer flow; a "#hours=…" link renders
+// the read-only shared page. Otherwise the normal app boots.
+if (!tryRenderBackupImport() && !tryRenderSharedView()) {
+  refreshDays();
+  selectedDayIdx = defaultSelectedDay();
+  renderAll();
 
   const newNameEl = document.getElementById('newName');
   if (newNameEl && newNameEl.addEventListener) {
     newNameEl.addEventListener('keydown', e => { if(e.key==='Enter') addCaregiver(); });
   }
+
+  initSync();
 }
 </script>
 </body>
