@@ -2082,7 +2082,7 @@ function buildCareFormText(dateKey, shiftId) {
   const lines = [
     who ? `Hi ${who}!` : 'Hi!',
     '',
-    `Could you fill this out for your ${s.label} shift (${s.time}) on ${day.dateShort}? Type your answer after each colon and text the whole thing back — blanks are fine.`,
+    `Could you fill this out for your ${s.label} shift (${s.time})? Type your answer after each colon and text the whole thing back — blanks are fine.`,
     '',
     ...state.careFields.map(f => `${f.label}${careFieldHint(f)}:`),
   ];
