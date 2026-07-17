@@ -257,6 +257,28 @@
     .sync-details summary{cursor:pointer;font-weight:700;color:var(--blue-dark);font-size:.9rem;padding:4px 0;list-style:none;user-select:none;}
     .sync-details summary::-webkit-details-marker{display:none;}
 
+    /* ── Care Log ── */
+    .care-shift-top{display:flex;align-items:center;gap:9px;margin-bottom:10px;flex-wrap:wrap;}
+    .badge-gray{background:var(--gray-bg);color:var(--gray-fg);}
+    .care-field-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--gray-bg);}
+    .care-field-row:last-of-type{border-bottom:none;}
+    .care-field-label{flex:1;font-size:.92rem;font-weight:600;}
+    .care-hint{font-size:.75rem;color:var(--muted);font-weight:600;}
+    .care-field-ctl{display:flex;align-items:center;gap:6px;}
+    .care-field-ctl select,.care-field-ctl input{border:1.5px solid var(--border);border-radius:10px;padding:10px;background:white;min-height:44px;color:var(--text);}
+    .care-field-ctl select{min-width:110px;}
+    .care-field-ctl input[type=number]{width:90px;}
+    .care-field-block{flex-direction:column;align-items:stretch;gap:6px;}
+    .care-field-block .care-field-ctl input{width:100%;}
+    .care-unit{font-size:.85rem;color:var(--muted);font-weight:600;}
+    .care-empty{text-align:center;color:var(--muted);font-style:italic;padding:8px 0;}
+
+    /* ── Care checklist editor (Set-Up) ── */
+    .care-tpl-row{display:flex;align-items:center;gap:8px;padding:6px 0;}
+    .care-label-input{flex:1;min-width:120px;border:1.5px solid var(--border);border-radius:9px;padding:9px 10px;}
+    .care-type-tag{font-size:.75rem;color:var(--muted);font-weight:700;white-space:nowrap;max-width:40%;overflow:hidden;text-overflow:ellipsis;}
+    .add-tpl-row select{border:1.5px solid var(--border);border-radius:9px;padding:9px 10px;background:white;}
+
     /* ── Toast ── */
     #toast{position:fixed;bottom:calc(84px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#1e293b;color:white;padding:9px 20px;border-radius:22px;font-size:.85rem;font-weight:700;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60;white-space:nowrap;}
     #toast.show{opacity:.93;}
@@ -314,6 +336,17 @@
     <div id="schedule"></div>
 
     <footer>Everything saves by itself — nothing to click.</footer>
+  </section>
+
+  <!-- ════════ CARE LOG TAB ════════ -->
+  <section id="panel-carelog" class="panel">
+    <div class="card">
+      <div class="card-title">📋 Care checks, shift by shift</div>
+      <div class="card-help">Whoever is with Carolyn fills these in during their shift — everything saves by itself. Blank answers are fine; record what you noticed.
+        <span class="plan-edit-note" id="planNoteCare"></span>
+      </div>
+    </div>
+    <div id="careLogBody"></div>
   </section>
 
   <!-- ════════ MESSAGES TAB ════════ -->
@@ -427,6 +460,12 @@
     </div>
 
     <div class="card">
+      <div class="card-title">📋 Care checklist</div>
+      <div class="card-help">What caregivers record on the Care Log page during every shift. Rename anything, remove what you don't need, or add your own checks — like blood pressure or mood. Same checklist on both schedules.</div>
+      <div id="careFieldsEditor"></div>
+    </div>
+
+    <div class="card">
       <div class="card-title">🕐 Shift times</div>
       <div class="card-help">Change a time here and it changes everywhere. The day buttons control which days of the week a shift appears — weekends use one 12-hour Day shift instead of the weekday ones.
         <span class="plan-edit-note" id="planNoteShifts"></span>
@@ -466,6 +505,7 @@
 
 <nav class="tabbar" id="tabbar">
   <button class="tab active" id="tab-schedule" onclick="switchTab('schedule')"><span class="tab-icon">📅</span>Schedule</button>
+  <button class="tab" id="tab-carelog" onclick="switchTab('carelog')"><span class="tab-icon">📋</span>Care Log</button>
   <button class="tab" id="tab-messages" onclick="switchTab('messages')"><span class="tab-icon">💬</span>Messages</button>
   <button class="tab" id="tab-hours" onclick="switchTab('hours')"><span class="tab-icon">⏱</span>Hours</button>
   <button class="tab" id="tab-setup" onclick="switchTab('setup')"><span class="tab-icon">⚙️</span>Set-Up</button>
@@ -526,6 +566,23 @@ const BOB_PATTERN = {
 
 const DEFAULT_CAREGIVERS = ['Marty','Janice','Carol','Renee','Brad','Dean','Kim','Patty','Deddeh'];
 
+// Care Log checklist — filled in per shift, per day. Editable in Set-Up.
+// Types: 'yesno', 'scale' (1–10), 'number' (+ optional unit),
+//        'text' (short answer), 'choice' (+ options list).
+const DEFAULT_CARE_FIELDS = [
+  { id:'urine',         label:'Urine output',           type:'choice', options:['None','Less than usual','Normal','More than usual'] },
+  { id:'stool',         label:'Stool / bowel movement', type:'choice', options:['None','Normal','Loose','Hard'] },
+  { id:'stool-sample',  label:'Stool sample collected', type:'yesno' },
+  { id:'sleep-quality', label:'Sleep quality',          type:'scale' },
+  { id:'sleep-hours',   label:'Sleep',                  type:'number', unit:'hours' },
+  { id:'meals',         label:'Meals eaten',            type:'text' },
+  { id:'appetite',      label:'Appetite',               type:'scale' },
+];
+
+const CARE_TYPE_LABELS = {
+  yesno:'Yes / No', scale:'1–10', number:'Number', text:'Short answer', choice:'Choices',
+};
+
 // Historical weekday shift defaults (from recurring calendar events May–June 2026).
 // Keyed by shift id, so they only ever apply to plans that contain those ids.
 const HISTORICAL_WEEKDAY_SHIFTS = {
@@ -563,6 +620,7 @@ let DAYS  = [];
 let openOnlyView = false;   // schedule tab filter (not saved — resets each visit)
 let selectedDayIdx = 0;     // day shown under the calendar grid
 let pendingImport = null;   // JSON string waiting for the user to confirm a transfer
+let careDate = toDateKey(new Date()); // day shown on the Care Log tab (not saved)
 let syncMeta = loadSyncMeta(); // per-device sync bookkeeping — never travels between devices
 
 // The active plan: every schedule read/write goes through here.
@@ -588,6 +646,8 @@ function loadState() {
     scheduleView: 'list',
     hoursAdj    : {},
     rates       : {},
+    careFields  : deepClone(DEFAULT_CARE_FIELDS),
+    careLog     : {},
     activePlan  : 'a',
     plans: {
       a: { name:'Regular schedule',  shiftDefs:deepClone(DEFAULT_SHIFT_DEFS), pattern:deepClone(DEFAULT_PATTERN), assignments:{}, dayOverrides:{} },
@@ -687,6 +747,9 @@ function normalizeState(s) {
       if (s.scheduleView !== 'calendar')      s.scheduleView = 'list';
       if (!s.hoursAdj)                        s.hoursAdj    = {};
       if (!s.rates)                           s.rates       = {};
+      if (!Array.isArray(s.careFields))       s.careFields  = deepClone(DEFAULT_CARE_FIELDS);
+      s.careFields.forEach(f => { if (f.type === 'choice' && !Array.isArray(f.options)) f.options = []; });
+      if (!s.careLog)                         s.careLog     = {};
       if (s.sync && !(typeof s.sync.u === 'string' && typeof s.sync.c === 'string')) delete s.sync;
       return s;
 }
@@ -717,7 +780,7 @@ function deepClone(o) { return JSON.parse(JSON.stringify(o)); }
 // Tabs & plan switching
 // ═══════════════════════════════════════════════════════════════════
 
-const TAB_IDS = ['schedule','messages','hours','setup'];
+const TAB_IDS = ['schedule','carelog','messages','hours','setup'];
 function switchTab(name) {
   TAB_IDS.forEach(t => {
     const panel = document.getElementById('panel-' + t);
@@ -741,6 +804,7 @@ function switchPlan(p) {
   renderSchedule();
   renderText();
   renderPersonText();
+  renderCareLog();
 }
 
 function updatePlanUI() {
@@ -760,7 +824,8 @@ function updatePlanUI() {
   }
   const notes = { planNoteMsg:'Messages come from: ', planNoteShifts:'These changes apply to: ',
                   planNoteWeek:'These changes apply to: ', planNoteReset:'This clears: ',
-                  planNoteIcs:'Exports: ', planNoteHours:'Counting hours for: ' };
+                  planNoteIcs:'Exports: ', planNoteHours:'Counting hours for: ',
+                  planNoteCare:'Shifts come from: ' };
   for (const id in notes) {
     const el = document.getElementById(id);
     if (el) el.textContent = notes[id] + plan().name;
@@ -884,6 +949,7 @@ function rerenderAfterAssignChange(dateKey) {
   }
   renderText();
   renderPersonText();
+  renderCareLog();   // keeps its "who was on this shift" chips current
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1263,6 +1329,7 @@ function removeCaregiver(name) {
   renderSchedule();
   renderText();
   refreshCaregiverPick();
+  renderCareLog();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1831,6 +1898,242 @@ function updateRate(name, val) {
   save();
   renderRates();
   renderHours();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Care Log — per-shift checklist (urine output, sleep, meals, …).
+// Fields are editable in Set-Up; answers live in state.careLog keyed
+// by date|shiftId|fieldId, so they ride along with sync and transfers.
+// ═══════════════════════════════════════════════════════════════════
+
+function ck(dateKey, shiftId, fieldId) { return `${dateKey}|${shiftId}|${fieldId}`; }
+
+// A day object for ANY date (the Care Log isn't limited to the 2-week
+// scheduling window), matching the shape generateDays produces.
+function makeDay(dateKey) {
+  const d   = new Date(dateKey + 'T12:00:00');
+  const dow = d.getDay();
+  const pat = plan().pattern[dow] || { afternoonNeeded:true, preset:null };
+  return {
+    date     : d.toLocaleDateString('en-US',{ weekday:'long', month:'long', day:'numeric' }),
+    dateShort: d.toLocaleDateString('en-US',{ weekday:'short', month:'long', day:'numeric' }),
+    dateKey, dow,
+    afternoonNeeded: pat.afternoonNeeded,
+    preset: pat.preset || null,
+  };
+}
+
+function careShiftsFor(day) {
+  return getShiftsForDay(day).filter(s => !s._hidden && !s._hiddenByPattern);
+}
+
+function shiftCareDay(dir) {
+  careDate = addDaysToKey(careDate, dir);
+  renderCareLog();
+}
+
+function onCareDateJump(val) {
+  if (!val) return;
+  careDate = val;
+  renderCareLog();
+}
+
+function careJumpToday() {
+  careDate = toDateKey(new Date());
+  renderCareLog();
+}
+
+function setCareValue(dateKey, shiftId, fieldId, value) {
+  const k = ck(dateKey, shiftId, fieldId);
+  const v = String(value).trim();
+  if (v) state.careLog[k] = v;
+  else   delete state.careLog[k];
+  save();   // no re-render: the input already shows the value
+}
+
+function careControlHtml(day, shift, f) {
+  const v  = state.careLog[ck(day.dateKey, shift.id, f.id)] || '';
+  const on = `onchange="setCareValue('${day.dateKey}','${shift.id}','${f.id}',this.value)"`;
+  if (f.type === 'scale') {
+    const opts = Array.from({length:10}, (_, i) => `<option value="${i+1}" ${v === String(i+1) ? 'selected' : ''}>${i+1}</option>`).join('');
+    return `<select ${on}><option value="">—</option>${opts}</select>`;
+  }
+  if (f.type === 'yesno') {
+    return `<select ${on}>${['','Yes','No'].map(o => `<option value="${o}" ${v === o ? 'selected' : ''}>${o || '—'}</option>`).join('')}</select>`;
+  }
+  if (f.type === 'choice') {
+    const opts = (f.options || []).map(o => `<option value="${esc(o)}" ${v === o ? 'selected' : ''}>${esc(o)}</option>`).join('');
+    return `<select ${on}><option value="">—</option>${opts}</select>`;
+  }
+  if (f.type === 'number') {
+    return `<input type="number" step="any" value="${esc(v)}" placeholder="—" ${on}>${f.unit ? `<span class="care-unit">${esc(f.unit)}</span>` : ''}`;
+  }
+  return `<input type="text" value="${esc(v)}" placeholder="—" ${on}>`;
+}
+
+function renderCareLog() {
+  const el = document.getElementById('careLogBody');
+  if (!el) return;
+  const day    = makeDay(careDate);
+  const shifts = careShiftsFor(day);
+  const today  = toDateKey(new Date());
+
+  const shiftCards = shifts.map(s => {
+    const who = getAssigned(day.dateKey, s.id);
+    const rows = state.careFields.map(f => `
+      <div class="care-field-row ${f.type === 'text' ? 'care-field-block' : ''}">
+        <span class="care-field-label">${esc(f.label)}${f.type === 'scale' ? ' <span class="care-hint">1 = poor · 10 = great</span>' : ''}</span>
+        <span class="care-field-ctl">${careControlHtml(day, s, f)}</span>
+      </div>`).join('');
+    return `
+      <div class="card">
+        <div class="care-shift-top">
+          <span class="shift-icon">${s.icon}</span>
+          <span class="shift-time">${esc(s.time)}</span>
+          <span class="shift-label">${esc(s.label)}</span>
+          ${who ? `<span class="badge badge-green">${esc(who)}</span>` : '<span class="badge badge-gray">nobody assigned</span>'}
+        </div>
+        ${rows}
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="card period-nav">
+      <button class="nav-arrow" onclick="shiftCareDay(-1)" aria-label="Previous day">‹</button>
+      <div class="period-center">
+        <div class="period-label">${day.date}</div>
+        <div class="period-sub">${day.dateKey === today ? 'today' : ''}&nbsp;· tap ‹ › to change days</div>
+      </div>
+      <button class="nav-arrow" onclick="shiftCareDay(1)" aria-label="Next day">›</button>
+    </div>
+    <div class="jump-row">
+      <label for="careDateInput">Jump to:</label>
+      <input type="date" id="careDateInput" value="${day.dateKey}" onchange="onCareDateJump(this.value)" />
+      ${day.dateKey === today ? '' : '<button class="btn btn-sm btn-outline" onclick="careJumpToday()">Today</button>'}
+    </div>
+    ${shiftCards || '<div class="card care-empty">No shifts on this day.</div>'}
+    <div class="card">
+      <button class="copy-btn" onclick="copyCareDay()">📋&nbsp; Copy this day's care notes</button>
+      <div class="copy-confirm" id="careCopyConfirm"></div>
+      <div class="card-help" style="margin:8px 0 0;">Copies everything recorded for this day as text — paste it into a message for family or the doctor.</div>
+      <button class="btn-ghost" style="margin-top:10px;" onclick="switchTab('setup')">✎ Add or change the checklist (in Set-Up)</button>
+    </div>`;
+}
+
+function careValueText(f, v) {
+  if (f.type === 'scale')  return `${v}/10`;
+  if (f.type === 'number') return v + (f.unit ? ' ' + f.unit : '');
+  return v;
+}
+
+function buildCareDayText() {
+  const day    = makeDay(careDate);
+  const blocks = [];
+  careShiftsFor(day).forEach(s => {
+    const lines = [];
+    state.careFields.forEach(f => {
+      const v = state.careLog[ck(day.dateKey, s.id, f.id)];
+      if (v) lines.push(`  • ${f.label}: ${careValueText(f, v)}`);
+    });
+    if (!lines.length) return;
+    const who = getAssigned(day.dateKey, s.id);
+    blocks.push(`${s.icon} ${s.label} (${s.time})${who ? ' — ' + who : ''}\n` + lines.join('\n'));
+  });
+  if (!blocks.length) return null;
+  return [`Care notes — ${day.date}`, '', blocks.join('\n\n')].join('\n');
+}
+
+function copyCareDay() {
+  const txt = buildCareDayText();
+  if (!txt) {
+    const c = document.getElementById('careCopyConfirm');
+    if (c) { c.textContent = 'Nothing recorded for this day yet.'; setTimeout(() => c.textContent = '', 4000); }
+    return;
+  }
+  copyString(txt, 'careCopyConfirm', '✓ Copied! Paste it into a text or email.');
+}
+
+// ── Checklist editor (Set-Up tab) ──
+
+function renderCareFieldsEditor() {
+  const el = document.getElementById('careFieldsEditor');
+  if (!el) return;
+  const rows = state.careFields.map((f, idx) => {
+    let tag = CARE_TYPE_LABELS[f.type] || f.type;
+    if (f.type === 'number' && f.unit) tag += ' · ' + f.unit;
+    if (f.type === 'choice') tag += ': ' + (f.options || []).join(', ');
+    return `
+      <div class="care-tpl-row">
+        <input class="care-label-input" value="${esc(f.label)}" onchange="updateCareFieldLabel(${idx}, this.value)" />
+        <span class="care-type-tag" title="${esc(tag)}">${esc(tag)}</span>
+        <button class="tpl-del" onclick="deleteCareField(${idx})" title="Remove this check">×</button>
+      </div>`;
+  }).join('');
+  el.innerHTML = `${rows}
+    <div class="add-tpl-row">
+      <input id="newCareLabel" placeholder="e.g. Blood pressure" style="flex:1;min-width:130px;">
+      <select id="newCareType" onchange="onNewCareTypeChange()">
+        <option value="yesno">Yes / No</option>
+        <option value="scale">1–10 scale</option>
+        <option value="number">Number</option>
+        <option value="text">Short answer</option>
+        <option value="choice">Multiple choice</option>
+      </select>
+      <input id="newCareExtra" style="display:none;flex:1;min-width:140px;">
+      <button class="btn btn-sm" onclick="addCareField()">Add</button>
+    </div>`;
+}
+
+function onNewCareTypeChange() {
+  const type  = document.getElementById('newCareType').value;
+  const extra = document.getElementById('newCareExtra');
+  if (!extra) return;
+  if (type === 'number') {
+    extra.style.display = '';
+    extra.placeholder = 'unit — e.g. mmHg (optional)';
+  } else if (type === 'choice') {
+    extra.style.display = '';
+    extra.placeholder = 'choices, separated by commas';
+  } else {
+    extra.style.display = 'none';
+  }
+}
+
+function addCareField() {
+  const label = document.getElementById('newCareLabel').value.trim();
+  const type  = document.getElementById('newCareType').value;
+  const extra = document.getElementById('newCareExtra').value.trim();
+  if (!label) { alert('Give the new check a name first — e.g. "Blood pressure".'); return; }
+  const f = { id:'cf-' + Date.now(), label, type };
+  if (type === 'number' && extra) f.unit = extra;
+  if (type === 'choice') {
+    f.options = extra.split(',').map(s => s.trim()).filter(Boolean);
+    if (!f.options.length) { alert('List the choices, separated by commas — e.g. "Good, OK, Poor".'); return; }
+  }
+  state.careFields.push(f);
+  save();
+  renderCareFieldsEditor();
+  renderCareLog();
+}
+
+function updateCareFieldLabel(idx, value) {
+  const v = value.trim();
+  if (v) state.careFields[idx].label = v;
+  save();
+  renderCareFieldsEditor();
+  renderCareLog();
+}
+
+function deleteCareField(idx) {
+  const f = state.careFields[idx];
+  if (!confirm(`Remove "${f.label}" from the checklist?\n\nAnswers already recorded for it will be deleted too.`)) return;
+  state.careFields.splice(idx, 1);
+  for (const k in state.careLog) {
+    if (k.split('|')[2] === f.id) delete state.careLog[k];
+  }
+  save();
+  renderCareFieldsEditor();
+  renderCareLog();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2790,6 +3093,8 @@ function renderAll() {
 
   renderText();
   refreshCaregiverPick();
+  renderCareLog();
+  renderCareFieldsEditor();
   renderSyncCard();
 }
 
