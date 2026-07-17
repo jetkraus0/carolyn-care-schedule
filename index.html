@@ -274,6 +274,10 @@
     .care-empty{text-align:center;color:var(--muted);font-style:italic;padding:8px 0;}
 
     /* ── Care checklist editor (Set-Up) ── */
+    .care-msg-row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;}
+    .care-msg-row .btn{flex:1;min-width:140px;}
+    .care-paste-result{font-size:.85rem;font-weight:600;margin-top:8px;line-height:1.5;}
+
     .care-tpl-row{display:flex;align-items:center;gap:8px;padding:6px 0;}
     .care-label-input{flex:1;min-width:120px;border:1.5px solid var(--border);border-radius:9px;padding:9px 10px;}
     .care-type-tag{font-size:.75rem;color:var(--muted);font-weight:700;white-space:nowrap;max-width:40%;overflow:hidden;text-overflow:ellipsis;}
@@ -342,7 +346,7 @@
   <section id="panel-carelog" class="panel">
     <div class="card">
       <div class="card-title">📋 Care checks, shift by shift</div>
-      <div class="card-help">Whoever is with Carolyn fills these in during their shift — everything saves by itself. Blank answers are fine; record what you noticed.
+      <div class="card-help">Whoever is with Carolyn fills these in during their shift — everything saves by itself. Blank answers are fine; record what you noticed. Not with the phone? Text the caregiver a fill-in form from their shift below, then paste their reply back in and the answers fill themselves.
         <span class="plan-edit-note" id="planNoteCare"></span>
       </div>
     </div>
@@ -1994,6 +1998,13 @@ function renderCareLog() {
           ${who ? `<span class="badge badge-green">${esc(who)}</span>` : '<span class="badge badge-gray">nobody assigned</span>'}
         </div>
         ${rows}
+        <div class="care-msg-row">
+          <button class="btn btn-sm btn-outline" onclick="copyCareForm('${day.dateKey}','${s.id}')">✉️ Copy form to text ${who ? esc(who) : 'the caregiver'}</button>
+          <button class="btn btn-sm btn-outline" onclick="toggleCarePaste('${day.dateKey}','${s.id}')">📥 Paste their answers</button>
+        </div>
+        <div class="copy-confirm" id="careFormConfirm-${s.id}"></div>
+        <div id="carePaste-${s.id}"></div>
+        <div class="care-paste-result" id="careResult-${s.id}"></div>
       </div>`;
   }).join('');
 
@@ -2051,6 +2062,124 @@ function copyCareDay() {
     return;
   }
   copyString(txt, 'careCopyConfirm', '✓ Copied! Paste it into a text or email.');
+}
+
+// ── Text a caregiver a fill-in form; paste their reply back in ──
+
+function careFieldHint(f) {
+  if (f.type === 'scale')  return ' (1-10)';
+  if (f.type === 'yesno')  return ' (Yes / No)';
+  if (f.type === 'choice') return ' (' + (f.options || []).join(' / ') + ')';
+  if (f.type === 'number') return ' (' + (f.unit || 'number') + ')';
+  return '';
+}
+
+function buildCareFormText(dateKey, shiftId) {
+  const day = makeDay(dateKey);
+  const s   = careShiftsFor(day).find(x => x.id === shiftId);
+  if (!s) return null;
+  const who = getAssigned(dateKey, shiftId);
+  const lines = [
+    who ? `Hi ${who}!` : 'Hi!',
+    '',
+    `Could you fill this out for your ${s.label} shift (${s.time}) on ${day.dateShort}? Type your answer after each colon and text the whole thing back — blanks are fine.`,
+    '',
+    ...state.careFields.map(f => `${f.label}${careFieldHint(f)}:`),
+  ];
+  if (state.signoff) { lines.push('', 'Thanks –', state.signoff); }
+  return lines.join('\n');
+}
+
+function copyCareForm(dateKey, shiftId) {
+  const txt = buildCareFormText(dateKey, shiftId);
+  if (!txt) return;
+  copyString(txt, 'careFormConfirm-' + shiftId, '✓ Copied! Paste it into a text to the caregiver.');
+}
+
+function toggleCarePaste(dateKey, shiftId) {
+  const box = document.getElementById('carePaste-' + shiftId);
+  if (!box) return;
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  box.innerHTML = `
+    <textarea id="carePasteTa-${shiftId}" class="notes-area" rows="6" style="margin-top:10px;"
+              placeholder="Paste the caregiver's reply here — the answers fill in below."></textarea>
+    <div class="sync-btn-row" style="margin-top:8px;">
+      <button class="btn btn-sm" onclick="applyCarePaste('${dateKey}','${shiftId}')">Fill in the checklist</button>
+      <button class="btn btn-sm btn-outline" onclick="toggleCarePaste('${dateKey}','${shiftId}')">Cancel</button>
+    </div>`;
+  const ta = document.getElementById('carePasteTa-' + shiftId);
+  if (ta && ta.focus) ta.focus();
+}
+
+// Turn one line of a texted-back reply into a stored value, or null
+// if it can't be read confidently (better to ask than to guess).
+function normalizeCareAnswer(f, raw) {
+  if (f.type === 'scale') {
+    const m = raw.match(/\d+/);                     // "7", "7/10", "a 7"
+    if (!m) return null;
+    const n = parseInt(m[0], 10);
+    return n >= 1 && n <= 10 ? String(n) : null;
+  }
+  if (f.type === 'number') {
+    const m = raw.match(/-?\d+(\.\d+)?/);           // "8.5", "8.5 hrs"
+    return m ? m[0] : null;
+  }
+  if (f.type === 'yesno') {
+    if (/^y/i.test(raw)) return 'Yes';
+    if (/^n/i.test(raw)) return 'No';
+    return null;
+  }
+  if (f.type === 'choice') {
+    const low = raw.toLowerCase();
+    return (f.options || []).find(o => o.toLowerCase() === low)
+        || (f.options || []).find(o => low.startsWith(o.toLowerCase()) || o.toLowerCase().startsWith(low))
+        || null;
+  }
+  return raw;                                       // free text: keep as-is
+}
+
+function parseCareReply(text, dateKey, shiftId) {
+  // Longest label first, so "Sleep quality: 7" can't be claimed by "Sleep"
+  const fields = [...state.careFields].sort((a, b) => b.label.length - a.label.length);
+  const filled = [], unreadable = [];
+  String(text || '').split(/\r?\n/).forEach(rawLine => {
+    const line = rawLine.replace(/^[\s•\-*]+/, '').trim();
+    if (!line) return;
+    const lower = line.toLowerCase();
+    const f = fields.find(x => lower.startsWith(x.label.toLowerCase()));
+    if (!f) return;                                 // greeting or stray line
+    const ci = line.indexOf(':', f.label.length);
+    if (ci < 0) return;
+    const raw = line.slice(ci + 1).trim();
+    if (!raw) return;                               // left blank on purpose
+    const v = normalizeCareAnswer(f, raw);
+    if (v == null) { unreadable.push(`${f.label} ("${raw}")`); return; }
+    state.careLog[ck(dateKey, shiftId, f.id)] = v;
+    filled.push(f.label);
+  });
+  return { filled, unreadable };
+}
+
+function applyCarePaste(dateKey, shiftId) {
+  const ta = document.getElementById('carePasteTa-' + shiftId);
+  if (!ta) return;
+  const { filled, unreadable } = parseCareReply(ta.value, dateKey, shiftId);
+  if (!filled.length && !unreadable.length) {
+    const res = document.getElementById('careResult-' + shiftId);
+    if (res) {
+      res.style.color = 'var(--red-fg)';
+      res.textContent = "Couldn't find any answers in that text. The reply needs to keep each label, like \"Sleep quality (1-10): 7\".";
+    }
+    return;   // keep the textarea so it can be fixed and retried
+  }
+  save();
+  renderCareLog();                                  // shows the new answers
+  const res = document.getElementById('careResult-' + shiftId);
+  if (res) {
+    res.style.color = filled.length ? 'var(--green-fg)' : 'var(--yellow-fg)';
+    res.textContent = (filled.length ? `✓ Filled in ${filled.length} answer${filled.length === 1 ? '' : 's'}.` : '') +
+      (unreadable.length ? ` Couldn't read ${unreadable.join(', ')} — pick those by hand above.` : '');
+  }
 }
 
 // ── Checklist editor (Set-Up tab) ──
