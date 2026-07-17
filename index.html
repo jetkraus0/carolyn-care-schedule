@@ -1955,9 +1955,9 @@ function setCareValue(dateKey, shiftId, fieldId, value) {
   save();   // no re-render: the input already shows the value
 }
 
-function careControlHtml(day, shift, f) {
+function careControlHtml(day, shift, f, handler) {
   const v  = state.careLog[ck(day.dateKey, shift.id, f.id)] || '';
-  const on = `onchange="setCareValue('${day.dateKey}','${shift.id}','${f.id}',this.value)"`;
+  const on = `onchange="${handler || 'setCareValue'}('${day.dateKey}','${shift.id}','${f.id}',this.value)"`;
   if (f.type === 'scale') {
     const opts = Array.from({length:10}, (_, i) => `<option value="${i+1}" ${v === String(i+1) ? 'selected' : ''}>${i+1}</option>`).join('');
     return `<select ${on}><option value="">—</option>${opts}</select>`;
@@ -2023,6 +2023,18 @@ function renderCareLog() {
       ${day.dateKey === today ? '' : '<button class="btn btn-sm btn-outline" onclick="careJumpToday()">Today</button>'}
     </div>
     ${shiftCards || '<div class="card care-empty">No shifts on this day.</div>'}
+    <div class="card">
+      <div class="card-title">🔗 Caregiver entry links</div>
+      ${syncCfg() ? `
+        <div class="card-help">Give each caregiver their own link — it opens a small page with just <b>their</b> shift and this checklist. Whatever they fill in lands right here by itself. The link is a key to the schedule, so only send it to your caregivers.</div>
+        <select id="cgLinkPick" class="msg-select">
+          <option value="">— choose a caregiver —</option>
+          ${state.caregivers.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+        </select>
+        <button class="copy-btn" style="margin-top:10px;" onclick="copyCaregiverLink()">🔗&nbsp; Copy their personal link</button>
+        <div class="copy-confirm" id="cgLinkConfirm"></div>`
+      : '<div class="card-help">Turn on <b>Automatic sync</b> (Set-Up tab) first — caregiver links use it to send their answers back to this schedule.</div>'}
+    </div>
     <div class="card">
       <button class="copy-btn" onclick="copyCareDay()">📋&nbsp; Copy this day's care notes</button>
       <div class="copy-confirm" id="careCopyConfirm"></div>
@@ -2179,6 +2191,163 @@ function applyCarePaste(dateKey, shiftId) {
     res.style.color = filled.length ? 'var(--green-fg)' : 'var(--yellow-fg)';
     res.textContent = (filled.length ? `✓ Filled in ${filled.length} answer${filled.length === 1 ? '' : 's'}.` : '') +
       (unreadable.length ? ` Couldn't read ${unreadable.join(', ')} — pick those by hand above.` : '');
+  }
+}
+
+// ── Personal caregiver links ──
+// A "#care=…" link opens a small page for ONE caregiver: just their
+// scheduled shift(s) for yesterday + today, with the checklist. Their
+// answers are merged into the freshest cloud copy and pushed, so they
+// land in the family's master schedule (and every synced device) live.
+// The page never touches the caregiver's own localStorage.
+
+let cgCfg = null, cgChanges = {}, cgDevice = '';
+
+function buildCaregiverLink(name) {
+  const c = syncCfg();
+  if (!c) return null;
+  return location.origin + location.pathname + '#care=' + b64urlEncode(JSON.stringify({ u:c.u, c:c.c, w:name }));
+}
+
+function copyCaregiverLink() {
+  const sel  = document.getElementById('cgLinkPick');
+  const name = sel ? sel.value : '';
+  const conf = document.getElementById('cgLinkConfirm');
+  if (!name) {
+    if (conf) { conf.textContent = 'Choose a caregiver first.'; setTimeout(() => conf.textContent = '', 4000); }
+    return;
+  }
+  copyString(buildCaregiverLink(name), 'cgLinkConfirm',
+    `✓ Link copied — text it to ${name}. It's theirs to keep; it works for every shift.`);
+}
+
+function tryRenderCaregiverView() {
+  if (typeof location === 'undefined') return false;
+  const m = (location.hash || '').match(/^#care=(.+)$/);
+  if (!m) return false;
+  let cfg = null;
+  try {
+    const o = JSON.parse(b64urlDecode(m[1]));
+    if (o && typeof o.u === 'string' && typeof o.c === 'string' && typeof o.w === 'string') cfg = o;
+  } catch(_) {}
+  renderCaregiverView(cfg);
+  return true;
+}
+
+async function renderCaregiverView(cfg) {
+  const mainEl = document.getElementById('mainEl');
+  const tb = document.getElementById('tabbar');
+  if (tb && tb.style) tb.style.display = 'none';
+  const fail = msg => {
+    mainEl.innerHTML = `
+      <div class="card">
+        <div class="card-title">⚠ Can't open this page</div>
+        <div class="card-help">${esc(msg)}</div>
+      </div>`;
+  };
+  if (!cfg) return fail("This link doesn't look right — ask the family for a fresh one.");
+  cgCfg = cfg;
+  cgDevice = 'cg-' + randCode(8);
+  mainEl.innerHTML = '<div class="card care-empty">Loading your shift…</div>';
+
+  let doc;
+  try {
+    const resp = await fetch(syncDocUrl(cfg), { cache:'no-store' });
+    if (!resp.ok) throw new Error();
+    doc = await resp.json();
+  } catch(_) { return fail("Couldn't reach the schedule — check your internet, then open the link again."); }
+  if (!doc || typeof doc.state !== 'string') return fail('The schedule isn\'t set up yet — ask the family for a fresh link.');
+
+  let parsed;
+  try { parsed = normalizeState(JSON.parse(await decodeStateStr(doc.state))); }
+  catch(_) { return fail("This phone couldn't read the schedule — updating its software usually fixes that."); }
+
+  state = parsed;   // in-memory only — this page never saves to this device
+  renderCgShifts();
+}
+
+function renderCgShifts() {
+  const who    = cgCfg.w;
+  const mainEl = document.getElementById('mainEl');
+  const hp     = document.getElementById('headerPeriod');
+  if (hp) hp.textContent = 'Care checks';
+
+  const today = toDateKey(new Date());
+  const cards = [];
+  [addDaysToKey(today, -1), today].forEach(dateKey => {
+    const day = makeDay(dateKey);
+    careShiftsFor(day).filter(s => getAssigned(dateKey, s.id) === who).forEach(s => {
+      const rows = state.careFields.map(f => `
+        <div class="care-field-row ${f.type === 'text' ? 'care-field-block' : ''}">
+          <span class="care-field-label">${esc(f.label)}${f.type === 'scale' ? ' <span class="care-hint">1 = poor · 10 = great</span>' : ''}</span>
+          <span class="care-field-ctl">${careControlHtml(day, s, f, 'cgSetValue')}</span>
+        </div>`).join('');
+      cards.push(`
+        <div class="card">
+          <div class="care-shift-top">
+            <span class="shift-icon">${s.icon}</span>
+            <span class="shift-time">${esc(s.time)}</span>
+            <span class="shift-label">${esc(s.label)} · ${esc(dateKey === today ? 'today' : day.dateShort)}</span>
+          </div>
+          ${rows}
+        </div>`);
+    });
+  });
+
+  mainEl.innerHTML = `
+    <div class="card">
+      <div class="card-title">Hi ${esc(who)}! 👋</div>
+      <div class="card-help">${cards.length
+        ? `Here ${cards.length === 1 ? 'is your shift' : 'are your shifts'} — fill in what you noticed about Carolyn (blanks are fine), then press <b>Send</b>. It goes straight into the family's schedule.`
+        : `The schedule doesn't show a shift for you today, so there's nothing to fill in. If that seems wrong, check with the family — then just open this same link again.`}</div>
+    </div>
+    ${cards.join('')}
+    ${cards.length ? `
+    <div class="card">
+      <button class="copy-btn" id="cgSendBtn" onclick="cgSend()">✅&nbsp; Send my answers</button>
+      <div class="copy-confirm" id="cgSendConfirm"></div>
+    </div>` : ''}`;
+}
+
+function cgSetValue(dateKey, shiftId, fieldId, value) {
+  const k = ck(dateKey, shiftId, fieldId);
+  const v = String(value).trim();
+  cgChanges[k] = v;                       // '' remembers "cleared on purpose"
+  if (v) state.careLog[k] = v; else delete state.careLog[k];
+  const c = document.getElementById('cgSendConfirm');
+  if (c) c.textContent = '';
+}
+
+async function cgSend() {
+  const btn = document.getElementById('cgSendBtn');
+  const say = t => { const c = document.getElementById('cgSendConfirm'); if (c) c.textContent = t; };
+  if (!Object.keys(cgChanges).length) { say('Nothing new to send yet — fill something in first.'); return; }
+  if (btn) btn.disabled = true;
+  say('Sending…');
+  try {
+    // Merge onto the freshest family copy, so nothing recorded by anyone
+    // else between opening this page and pressing Send gets overwritten.
+    const resp = await fetch(syncDocUrl(cgCfg), { cache:'no-store' });
+    if (!resp.ok) throw new Error();
+    const doc = await resp.json();
+    if (!doc || typeof doc.state !== 'string') throw new Error();
+    const fresh = normalizeState(JSON.parse(await decodeStateStr(doc.state)));
+    for (const k in cgChanges) {
+      if (cgChanges[k]) fresh.careLog[k] = cgChanges[k];
+      else delete fresh.careLog[k];
+    }
+    const put = await fetch(syncDocUrl(cgCfg), {
+      method:'PUT', cache:'no-store',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(buildSyncDoc(doc.rev, await encodeStateStr(JSON.stringify(fresh)), cgDevice, Date.now())),
+    });
+    if (!put.ok) throw new Error();
+    cgChanges = {};
+    say("✓ Sent! Your answers are in the family's schedule now. Thank you!");
+  } catch(_) {
+    say("Couldn't send — check your internet and press Send again. Your answers are still here.");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -2708,11 +2877,11 @@ function sameDoc(doc) {
   return (doc.rev || 0) === syncMeta.rev && (doc.device || '') === (syncMeta.baseDevice || '');
 }
 
-function buildSyncDoc(baseRev, encodedState) {
+function buildSyncDoc(baseRev, encodedState, device, updatedAt) {
   return {
     rev      : (baseRev || 0) + 1,
-    updatedAt: syncMeta.editedAt || Date.now(),
-    device   : syncMeta.device,
+    updatedAt: updatedAt || syncMeta.editedAt || Date.now(),
+    device   : device || syncMeta.device,
     state    : encodedState,
   };
 }
@@ -3197,7 +3366,7 @@ function esc(s) {
 // force a reload to run the matching view.
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('hashchange', () => {
-    if (/^#(hours|backup)=/.test(location.hash || '')) location.reload();
+    if (/^#(hours|backup|care)=/.test(location.hash || '')) location.reload();
   });
 }
 
@@ -3227,9 +3396,9 @@ function renderAll() {
   renderSyncCard();
 }
 
-// A "#backup=…" link renders the transfer flow; a "#hours=…" link renders
-// the read-only shared page. Otherwise the normal app boots.
-if (!tryRenderBackupImport() && !tryRenderSharedView()) {
+// A "#backup=…" link renders the transfer flow, "#hours=…" the read-only
+// shared page, "#care=…" a caregiver's entry page. Otherwise the app boots.
+if (!tryRenderBackupImport() && !tryRenderSharedView() && !tryRenderCaregiverView()) {
   refreshDays();
   selectedDayIdx = defaultSelectedDay();
   renderAll();
