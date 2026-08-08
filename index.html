@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#1e40af">
   <title>Carolyn's Care Schedule</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Carolyn's Care">
   <style>
     :root {
       --red-bg:#fee2e2;   --red-fg:#b91c1c;
@@ -491,6 +497,11 @@
         <span class="plan-edit-note" id="planNoteReset"></span>
       </div>
       <button class="btn btn-outline btn-block" onclick="confirmResetToPattern()">Re-fill schedule from the normal week</button>
+    </div>
+
+    <div class="card" id="addToHomeCard">
+      <div class="card-title">📲 Add to your Home Screen</div>
+      <div id="addToHomeBody"></div>
     </div>
 
     <div class="card" id="syncCard"></div>
@@ -2568,6 +2579,40 @@ function copyText(outId, confirmId) {
     '✓ Copied! Now paste it into your text message.');
 }
 
+// The plain app link, with no transfer/share payload in the hash — the
+// only kind of link that's safe to save to a Home Screen, since iOS
+// reopens the exact saved URL every time (including any hash).
+function homeScreenUrl() {
+  return location.origin + location.pathname;
+}
+
+function isStandaloneApp() {
+  return (typeof navigator !== 'undefined' && navigator.standalone) ||
+    (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
+
+function renderAddToHomeCard() {
+  const body = document.getElementById('addToHomeBody');
+  if (!body) return;
+  if (isStandaloneApp()) {
+    body.innerHTML = `<div class="card-help">✓ You're already using this as an app from your Home Screen — full-screen, no address bar, and it opens straight to your live schedule.</div>`;
+    return;
+  }
+  const url = homeScreenUrl();
+  const onSpecialLink = /^#(backup|hours|caregiver)=/.test(location.hash || '');
+  const warning = onSpecialLink
+    ? `<div class="card-help" style="color:var(--red-fg);font-weight:700;">⚠ The link you opened just now carries a one-time code, so it's the wrong one to save. If you already added a Home Screen icon from a link like this, remove that icon and add it again using the plain link below — that's why it's been asking about a transfer every time it opens.</div>`
+    : '';
+  body.innerHTML = `
+    <div class="card-help">Save this as an app icon on your phone so it opens full-screen without Safari's address bar — and always goes straight to your live schedule instead of asking about a transfer.</div>
+    ${warning}
+    <div class="text-output" id="homeScreenUrlOut" style="word-break:break-all;">${esc(url)}</div>
+    <button class="copy-btn" onclick="copyString(document.getElementById('homeScreenUrlOut').textContent,'homeScreenConfirm','✓ Copied! Open it in Safari, then follow the steps below.')">📋&nbsp; Copy this link</button>
+    <div class="copy-confirm" id="homeScreenConfirm"></div>
+    <div class="card-help" style="margin-top:10px;"><b>On iPhone/iPad:</b> open that link in <b>Safari</b> (not another app), tap the Share button at the bottom of the screen, then choose <b>Add to Home Screen</b>.</div>
+  `;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Shareable hours link — the numbers travel inside the URL itself,
 // so the recipient needs no app data (and theirs is never touched)
@@ -2916,13 +2961,16 @@ function updateRestoreBackupUI() {
 function previewBackup(idx) { selectedBackupIdx = idx; updateRestoreBackupUI(); }
 function closeBackupPreview() { selectedBackupIdx = -1; updateRestoreBackupUI(); }
 
-// This week's date-key range (Sun–Sat containing today), used to decide
-// which assignments/care-log entries "keep this week" merges preserve.
-function weekRangeContainingToday() {
-  const now = new Date();
-  const sun = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
-  const sat = new Date(sun.getFullYear(), sun.getMonth(), sun.getDate() + 6);
-  return { startKey: toDateKey(sun), endKey: toDateKey(sat) };
+// The currently active two-week schedule period (state.startDate through
+// the 13 days after it), used to decide which assignments/care-log
+// entries a "keep the current period" merge preserves.
+function currentPeriodRange() {
+  return { startKey: state.startDate, endKey: addDaysToKey(state.startDate, 13) };
+}
+
+function formatPeriodRange(range) {
+  const fmt = k => new Date(k + 'T12:00:00').toLocaleDateString('en-US', { month:'long', day:'numeric' });
+  return `${fmt(range.startKey)} – ${fmt(range.endKey)}`;
 }
 
 // A plain-text, read-only look at a backup's regular plan — built straight
@@ -2931,14 +2979,14 @@ function buildBackupPreviewText(st) {
   const pl = st.plans && st.plans.a;
   if (!pl || !st.startDate) return '(This backup has no readable schedule.)';
   const days = generateDays(st.startDate, pl.pattern || {});
-  const { startKey, endKey } = weekRangeContainingToday();
+  const range = currentPeriodRange();
   return days.map(day => {
     const parts = pl.shiftDefs
       .filter(s => shiftAppliesTo(s, day.dow) && (s.id !== 'afternoon' || day.afternoonNeeded))
       .map(s => `${s.label}: ${pl.assignments[aKey(day.dateKey, s.id)] || '(open)'}`);
-    const marker = (day.dateKey >= startKey && day.dateKey <= endKey) ? '★ ' : '  ';
+    const marker = (day.dateKey >= range.startKey && day.dateKey <= range.endKey) ? '★ ' : '  ';
     return `${marker}${day.dateShort} — ${parts.join(', ')}`;
-  }).join('\n') + '\n\n★ = this week';
+  }).join('\n') + `\n\n★ = the current period (${formatPeriodRange(range)})`;
 }
 
 function renderBackupPreview() {
@@ -2950,40 +2998,41 @@ function renderBackupPreview() {
   let st;
   try { st = JSON.parse(entry.state); } catch(_) { card.style.display = 'none'; card.innerHTML = ''; return; }
   card.style.display = '';
+  const periodLabel = esc(formatPeriodRange(currentPeriodRange()));
   card.innerHTML = `
     <div class="card-title">👁 Preview — ${esc(formatBackupWhen(entry.at))}</div>
     <div class="card-help">Saved ${esc(backupKindLabel(entry.kind))}. This is a look, not a change — nothing is replaced yet.</div>
     <div class="text-output">${esc(buildBackupPreviewText(st))}</div>
     <button class="copy-btn" onclick="restoreBackupEntry(${selectedBackupIdx}, false)">Restore this version completely</button>
-    <button class="btn btn-outline btn-block" style="margin-top:9px;" onclick="restoreBackupEntry(${selectedBackupIdx}, true)">Restore this version, but keep this week's current entries</button>
+    <button class="btn btn-outline btn-block" style="margin-top:9px;" onclick="restoreBackupEntry(${selectedBackupIdx}, true)">Restore this version, but keep the current period's entries (${periodLabel})</button>
     <button class="btn btn-outline btn-block" style="margin-top:9px;" onclick="closeBackupPreview()">Close preview</button>
   `;
 }
 
-// Overlay this week's live assignments/care-log entries onto an older
-// backup, so bringing back an older version doesn't erase work already
-// re-entered for the days happening now.
-function mergeCurrentWeekInto(backupState, liveState) {
+// Overlay the current period's live assignments/care-log entries onto an
+// older backup, so bringing back an older version doesn't erase work
+// already re-entered for the schedule that's active right now.
+function mergeCurrentPeriodInto(backupState, liveState) {
   const merged = deepClone(backupState);
-  const { startKey, endKey } = weekRangeContainingToday();
-  const inWeek = k => { const dk = k.split('|')[0]; return dk >= startKey && dk <= endKey; };
+  const range = currentPeriodRange();
+  const inPeriod = k => { const dk = k.split('|')[0]; return dk >= range.startKey && dk <= range.endKey; };
 
   ['a','b'].forEach(pk => {
     if (!merged.plans[pk]) return;
-    Object.keys(merged.plans[pk].assignments).forEach(k => { if (inWeek(k)) delete merged.plans[pk].assignments[k]; });
+    Object.keys(merged.plans[pk].assignments).forEach(k => { if (inPeriod(k)) delete merged.plans[pk].assignments[k]; });
     const livePlan = liveState.plans && liveState.plans[pk];
     if (livePlan) {
-      Object.keys(livePlan.assignments || {}).forEach(k => { if (inWeek(k)) merged.plans[pk].assignments[k] = livePlan.assignments[k]; });
+      Object.keys(livePlan.assignments || {}).forEach(k => { if (inPeriod(k)) merged.plans[pk].assignments[k] = livePlan.assignments[k]; });
     }
   });
 
-  Object.keys(merged.careLog).forEach(k => { if (inWeek(k)) delete merged.careLog[k]; });
-  Object.keys(liveState.careLog || {}).forEach(k => { if (inWeek(k)) merged.careLog[k] = liveState.careLog[k]; });
+  Object.keys(merged.careLog).forEach(k => { if (inPeriod(k)) delete merged.careLog[k]; });
+  Object.keys(liveState.careLog || {}).forEach(k => { if (inPeriod(k)) merged.careLog[k] = liveState.careLog[k]; });
 
   return merged;
 }
 
-function restoreBackupEntry(idx, keepThisWeek) {
+function restoreBackupEntry(idx, keepCurrentPeriod) {
   const hist = loadBackupHistory();
   const entry = hist[idx];
   if (!entry) return;
@@ -2991,8 +3040,8 @@ function restoreBackupEntry(idx, keepThisWeek) {
   try { backupState = normalizeState(JSON.parse(entry.state)); } catch(_) { alert("This saved copy can't be read."); return; }
 
   const pushEverywhere = !!syncCfg();
-  const verb = keepThisWeek
-    ? "bring back this saved version, keeping this week's current entries"
+  const verb = keepCurrentPeriod
+    ? `bring back this saved version, keeping the current period's entries (${formatPeriodRange(currentPeriodRange())})`
     : 'replace the current schedule on this device with this saved version';
   const msg = `Are you sure you want to ${verb}?` + (pushEverywhere ? ' This will also update every other connected device.' : '');
   if (!confirm(msg)) return;
@@ -3002,7 +3051,7 @@ function restoreBackupEntry(idx, keepThisWeek) {
   const current = localStorage.getItem(STORAGE_KEY);
   if (current) pushBackupSnapshot('pre-restore', current);
 
-  const finalState = keepThisWeek ? mergeCurrentWeekInto(backupState, state) : backupState;
+  const finalState = keepCurrentPeriod ? mergeCurrentPeriodInto(backupState, state) : backupState;
   finalState.sync = state.sync; // keep this device's own connection
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(finalState));
@@ -3597,6 +3646,7 @@ function renderAll() {
   if (notesEl) notesEl.value = state.notes;
 
   updateRestoreBackupUI();
+  renderAddToHomeCard();
   renderText();
   refreshCaregiverPick();
   renderCareLog();
