@@ -502,7 +502,13 @@
       <div class="copy-confirm" id="backupConfirm"></div>
     </div>
 
-    <div id="restoreBackupCards"></div>
+    <div class="card" id="backupHistoryCard" style="display:none;">
+      <div class="card-title">🛟 Backup history</div>
+      <div class="card-help">Saved copies of the schedule from just before it got replaced by a transfer link or an update from another device. Pick one to look at or bring back.</div>
+      <div id="backupHistoryList"></div>
+    </div>
+
+    <div class="card" id="backupPreviewCard" style="display:none;"></div>
 
     <footer>Your schedule is saved on this device automatically.</footer>
   </section>
@@ -2794,7 +2800,7 @@ async function renderBackupImport(kind, data) {
 function confirmImportBackup() {
   if (!pendingImport) return;
   const existing = localStorage.getItem(STORAGE_KEY);
-  if (existing) localStorage.setItem(STORAGE_KEY + '-pre-import', existing);
+  if (existing) pushBackupSnapshot('pre-import', existing);
   let importJson = pendingImport;
   try {
     const st = JSON.parse(pendingImport);
@@ -2816,15 +2822,50 @@ function confirmImportBackup() {
   location.reload();
 }
 
-// Two flows stash the previous local state as an emergency backup before
-// replacing it: loading a transfer link ('-pre-import') and adopting an
-// update pulled from another synced device ('-pre-sync', see adoptRemote).
-// Surface whichever exist so an accidental replacement can be undone
-// without dev tools.
-const EMERGENCY_BACKUP_KINDS = [
-  { suffix: '-pre-sync',   label: 'from just before this device picked up a schedule update from another device' },
-  { suffix: '-pre-import', label: 'from just before this device loaded a schedule transfer link' },
-];
+// Three flows stash the previous local state as an emergency backup
+// before replacing it: loading a transfer link ('pre-import'), adopting
+// an update pulled from another synced device ('pre-sync', see
+// adoptRemote), and restoring an older backup ('pre-restore', below).
+// Every snapshot is kept (capped) in one list, newest last, so a person
+// can look through several and not just the single most recent one.
+const BACKUP_HISTORY_KEY = STORAGE_KEY + '-backups';
+const MAX_BACKUP_HISTORY = 15;
+
+function loadBackupHistory() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(BACKUP_HISTORY_KEY));
+    return Array.isArray(arr) ? arr : [];
+  } catch(_) { return []; }
+}
+
+function pushBackupSnapshot(kind, rawJson) {
+  if (!rawJson) return;
+  const hist = loadBackupHistory();
+  if (hist.length && hist[hist.length - 1].state === rawJson) return; // dedupe
+  hist.push({ at: Date.now(), kind, state: rawJson });
+  while (hist.length > MAX_BACKUP_HISTORY) hist.shift();
+  try { localStorage.setItem(BACKUP_HISTORY_KEY, JSON.stringify(hist)); }
+  catch(_) {
+    // Storage full — drop the older half and try once more.
+    hist.splice(0, Math.ceil(hist.length / 2));
+    try { localStorage.setItem(BACKUP_HISTORY_KEY, JSON.stringify(hist)); } catch(_) {}
+  }
+}
+
+// One-time upgrade path: earlier versions of this app kept only a single
+// slot per kind, under plain '-pre-import' / '-pre-sync' keys. Fold any
+// that still exist into the history list so devices that already have
+// real recovery data from before this feature existed don't lose it.
+function migrateLegacyBackupKeys() {
+  ['pre-sync', 'pre-import'].forEach(kind => {
+    const key = STORAGE_KEY + '-' + kind;
+    const legacy = localStorage.getItem(key);
+    if (legacy) {
+      pushBackupSnapshot(kind, legacy);
+      localStorage.removeItem(key);
+    }
+  });
+}
 
 function describeBackupState(saved) {
   try {
@@ -2839,35 +2880,133 @@ function describeBackupState(saved) {
   } catch(_) { return ''; }
 }
 
-function updateRestoreBackupUI() {
-  const container = document.getElementById('restoreBackupCards');
-  if (!container) return;
-  container.innerHTML = EMERGENCY_BACKUP_KINDS.map(({ suffix, label }) => {
-    const saved = localStorage.getItem(STORAGE_KEY + suffix);
-    if (!saved) return '';
-    const detail = describeBackupState(saved);
-    return `
-    <div class="card">
-      <div class="card-title">🛟 Restore previous schedule</div>
-      <div class="card-help">This device has a saved copy of the schedule ${esc(label)}${detail ? ' (' + esc(detail) + ')' : ''}, in case that replaced something by mistake.</div>
-      <button class="btn btn-outline btn-block" onclick="restoreEmergencyBackup('${suffix}')">Restore that previous copy on this device</button>
-    </div>`;
-  }).join('');
+function backupKindLabel(kind) {
+  if (kind === 'pre-import')  return 'before a transfer link was loaded';
+  if (kind === 'pre-sync')    return 'before an update arrived from another device';
+  if (kind === 'pre-restore') return 'before an older backup was restored';
+  return 'saved copy';
 }
 
-function restoreEmergencyBackup(suffix) {
-  const key = STORAGE_KEY + suffix;
-  const saved = localStorage.getItem(key);
-  if (!saved) return;
+function formatBackupWhen(at) {
+  return new Date(at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+}
+
+let selectedBackupIdx = -1;
+
+function updateRestoreBackupUI() {
+  migrateLegacyBackupKeys();
+  const hist = loadBackupHistory();
+  const card = document.getElementById('backupHistoryCard');
+  const list = document.getElementById('backupHistoryList');
+  if (!card || !list) return;
+  card.style.display = hist.length ? '' : 'none';
+  if (selectedBackupIdx >= hist.length) selectedBackupIdx = -1;
+  list.innerHTML = hist.slice().reverse().map((entry, ri) => {
+    const i = hist.length - 1 - ri; // real index into hist (newest first on screen)
+    const detail = describeBackupState(entry.state);
+    const active = i === selectedBackupIdx;
+    return `
+    <button class="btn ${active ? '' : 'btn-outline'} btn-block backup-row" style="margin-top:8px;text-align:left;" onclick="previewBackup(${i})">
+      <b>${esc(formatBackupWhen(entry.at))}</b> — ${esc(backupKindLabel(entry.kind))}${detail ? '<br><span style="font-weight:normal;font-size:.85em;">' + esc(detail) + '</span>' : ''}
+    </button>`;
+  }).join('');
+  renderBackupPreview();
+}
+
+function previewBackup(idx) { selectedBackupIdx = idx; updateRestoreBackupUI(); }
+function closeBackupPreview() { selectedBackupIdx = -1; updateRestoreBackupUI(); }
+
+// This week's date-key range (Sun–Sat containing today), used to decide
+// which assignments/care-log entries "keep this week" merges preserve.
+function weekRangeContainingToday() {
+  const now = new Date();
+  const sun = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+  const sat = new Date(sun.getFullYear(), sun.getMonth(), sun.getDate() + 6);
+  return { startKey: toDateKey(sun), endKey: toDateKey(sat) };
+}
+
+// A plain-text, read-only look at a backup's regular plan — built straight
+// from its own saved data, without touching the live app state.
+function buildBackupPreviewText(st) {
+  const pl = st.plans && st.plans.a;
+  if (!pl || !st.startDate) return '(This backup has no readable schedule.)';
+  const days = generateDays(st.startDate, pl.pattern || {});
+  const { startKey, endKey } = weekRangeContainingToday();
+  return days.map(day => {
+    const parts = pl.shiftDefs
+      .filter(s => shiftAppliesTo(s, day.dow) && (s.id !== 'afternoon' || day.afternoonNeeded))
+      .map(s => `${s.label}: ${pl.assignments[aKey(day.dateKey, s.id)] || '(open)'}`);
+    const marker = (day.dateKey >= startKey && day.dateKey <= endKey) ? '★ ' : '  ';
+    return `${marker}${day.dateShort} — ${parts.join(', ')}`;
+  }).join('\n') + '\n\n★ = this week';
+}
+
+function renderBackupPreview() {
+  const card = document.getElementById('backupPreviewCard');
+  if (!card) return;
+  const hist = loadBackupHistory();
+  const entry = hist[selectedBackupIdx];
+  if (!entry) { card.style.display = 'none'; card.innerHTML = ''; return; }
+  let st;
+  try { st = JSON.parse(entry.state); } catch(_) { card.style.display = 'none'; card.innerHTML = ''; return; }
+  card.style.display = '';
+  card.innerHTML = `
+    <div class="card-title">👁 Preview — ${esc(formatBackupWhen(entry.at))}</div>
+    <div class="card-help">Saved ${esc(backupKindLabel(entry.kind))}. This is a look, not a change — nothing is replaced yet.</div>
+    <div class="text-output">${esc(buildBackupPreviewText(st))}</div>
+    <button class="copy-btn" onclick="restoreBackupEntry(${selectedBackupIdx}, false)">Restore this version completely</button>
+    <button class="btn btn-outline btn-block" style="margin-top:9px;" onclick="restoreBackupEntry(${selectedBackupIdx}, true)">Restore this version, but keep this week's current entries</button>
+    <button class="btn btn-outline btn-block" style="margin-top:9px;" onclick="closeBackupPreview()">Close preview</button>
+  `;
+}
+
+// Overlay this week's live assignments/care-log entries onto an older
+// backup, so bringing back an older version doesn't erase work already
+// re-entered for the days happening now.
+function mergeCurrentWeekInto(backupState, liveState) {
+  const merged = deepClone(backupState);
+  const { startKey, endKey } = weekRangeContainingToday();
+  const inWeek = k => { const dk = k.split('|')[0]; return dk >= startKey && dk <= endKey; };
+
+  ['a','b'].forEach(pk => {
+    if (!merged.plans[pk]) return;
+    Object.keys(merged.plans[pk].assignments).forEach(k => { if (inWeek(k)) delete merged.plans[pk].assignments[k]; });
+    const livePlan = liveState.plans && liveState.plans[pk];
+    if (livePlan) {
+      Object.keys(livePlan.assignments || {}).forEach(k => { if (inWeek(k)) merged.plans[pk].assignments[k] = livePlan.assignments[k]; });
+    }
+  });
+
+  Object.keys(merged.careLog).forEach(k => { if (inWeek(k)) delete merged.careLog[k]; });
+  Object.keys(liveState.careLog || {}).forEach(k => { if (inWeek(k)) merged.careLog[k] = liveState.careLog[k]; });
+
+  return merged;
+}
+
+function restoreBackupEntry(idx, keepThisWeek) {
+  const hist = loadBackupHistory();
+  const entry = hist[idx];
+  if (!entry) return;
+  let backupState;
+  try { backupState = normalizeState(JSON.parse(entry.state)); } catch(_) { alert("This saved copy can't be read."); return; }
+
   const pushEverywhere = !!syncCfg();
-  const msg = pushEverywhere
-    ? 'Replace the current schedule on this device with this saved backup — and send it to every other connected device too?'
-    : 'Replace the current schedule on this device with this saved backup?';
+  const verb = keepThisWeek
+    ? "bring back this saved version, keeping this week's current entries"
+    : 'replace the current schedule on this device with this saved version';
+  const msg = `Are you sure you want to ${verb}?` + (pushEverywhere ? ' This will also update every other connected device.' : '');
   if (!confirm(msg)) return;
+
+  // Snapshot what's here right now before overwriting it, so this is
+  // reversible too — restoring the wrong backup isn't a dead end.
   const current = localStorage.getItem(STORAGE_KEY);
-  if (current) localStorage.setItem(key, current);
-  else localStorage.removeItem(key);
-  localStorage.setItem(STORAGE_KEY, saved);
+  if (current) pushBackupSnapshot('pre-restore', current);
+
+  const finalState = keepThisWeek ? mergeCurrentWeekInto(backupState, state) : backupState;
+  finalState.sync = state.sync; // keep this device's own connection
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(finalState));
+
   if (pushEverywhere) {
     // Same trick as confirmImportBackup: treat the restored copy as the
     // newest version so it gets pushed to the cloud (and from there to
@@ -2898,8 +3037,8 @@ function restoreEmergencyBackup(suffix) {
 //   editedAt = when the schedule was last edited *on this device*
 //   dirty    = local edits not yet pushed
 //
-// Conflicts resolve newest-edit-wins; the losing copy is kept at
-// STORAGE_KEY + '-pre-sync' as an emergency backup.
+// Conflicts resolve newest-edit-wins; the losing copy is kept in the
+// backup history (see pushBackupSnapshot) as an emergency backup.
 // ═══════════════════════════════════════════════════════════════════
 
 const FIREBASE_RULES = `{
@@ -3099,7 +3238,7 @@ function adoptRemote(json, doc, force) {
   try { next = normalizeState(parsed); } catch(_) { return 'failed'; }
   // Back up the *live* state, not the last-persisted copy — text typed since
   // the last blur exists only in memory and would otherwise vanish entirely.
-  try { localStorage.setItem(STORAGE_KEY + '-pre-sync', JSON.stringify(state)); } catch(_) {}
+  try { pushBackupSnapshot('pre-sync', JSON.stringify(state)); } catch(_) {}
   const keepView = state.startDate === next.startDate && state.activePlan === next.activePlan;
   state = next;
   persistLocal();
