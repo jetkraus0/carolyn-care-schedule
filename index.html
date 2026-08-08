@@ -119,6 +119,12 @@
     .shift-top{display:flex;align-items:center;gap:9px;margin-bottom:8px;}
     .shift-icon{font-size:1.05rem;flex-shrink:0;}
     .shift-time{font-size:1rem;font-weight:800;}
+    .shift-time-btn{background:none;border:none;padding:0;font:inherit;font-size:1rem;font-weight:800;color:var(--text);cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;}
+    .shift-time-flag{font-size:.75rem;font-weight:600;color:var(--blue-dark);}
+    .shift-time-edit{display:inline-flex;gap:5px;align-items:center;flex-wrap:wrap;}
+    .shift-time-edit input{border:1.5px solid var(--border);border-radius:8px;padding:6px 8px;font-size:.85rem;width:150px;}
+    .shift-time-icon-btn{background:none;border:none;cursor:pointer;font-size:.95rem;padding:3px 7px;border-radius:6px;color:var(--muted);}
+    .shift-time-icon-btn:hover{background:var(--gray-bg);color:var(--text);}
     .shift-label{font-size:.8rem;font-weight:600;color:var(--muted);flex:1;}
     .shift-closed-text{font-size:.85rem;color:var(--muted);font-style:italic;}
     .shift-select{width:100%;border:1.5px solid var(--border);border-radius:11px;padding:12px;background:white;cursor:pointer;font-weight:600;min-height:48px;}
@@ -976,11 +982,16 @@ function rerenderAfterAssignChange(dateKey) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Day overrides: hide/restore plan shifts + extra custom shifts
+// Day overrides: hide/restore plan shifts + extra custom shifts +
+// per-instance shift time overrides
 // ═══════════════════════════════════════════════════════════════════
 
 function getOverrides(dateKey) {
-  return plan().dayOverrides[dateKey] || { hidden:[], extra:[] };
+  const ov = plan().dayOverrides[dateKey] || { hidden:[], extra:[] };
+  if (!ov.hidden) ov.hidden = [];
+  if (!ov.extra)  ov.extra  = [];
+  if (!ov.times)  ov.times  = {};
+  return ov;
 }
 
 function hideShift(dateKey, shiftId) {
@@ -1018,19 +1029,50 @@ function removeExtraShift(dateKey, shiftId) {
   rerenderAfterAssignChange(dateKey);
 }
 
-// Returns the effective shift list for a given day.
-// Each shift's `time` is resolved from its per-weekday override if one exists.
+// Time for one specific occurrence of a regular shift — e.g. just this
+// Tuesday's Morning, without touching every Tuesday (dayTimes) or the
+// shift's own default. Empty string clears back to the normal time.
+function setShiftTimeOverride(dateKey, shiftId, time) {
+  const ov = getOverrides(dateKey);
+  if (time) ov.times[shiftId] = time;
+  else delete ov.times[shiftId];
+  plan().dayOverrides[dateKey] = ov;
+  save();
+  rerenderAfterAssignChange(dateKey);
+}
+
+function resetShiftTime(dateKey, shiftId) {
+  setShiftTimeOverride(dateKey, shiftId, '');
+}
+
+function setExtraShiftTime(dateKey, shiftId, time) {
+  const ov = getOverrides(dateKey);
+  const ex = (ov.extra || []).find(s => s.id === shiftId);
+  if (!ex) return;
+  ex.time = time;
+  plan().dayOverrides[dateKey] = ov;
+  save();
+  rerenderAfterAssignChange(dateKey);
+}
+
+// Returns the effective shift list for a given day. Each shift's `time`
+// resolves in order: this exact day's override, then this weekday's
+// override (dayTimes), then the shift's own default.
 function getShiftsForDay(day) {
   const ov     = getOverrides(day.dateKey);
   const hidden = new Set(ov.hidden || []);
   return [
-    ...plan().shiftDefs.filter(s => shiftAppliesTo(s, day.dow)).map(s => ({
-      ...s,
-      time: (s.dayTimes && s.dayTimes[day.dow]) || s.time,
-      _isExtra: false,
-      _hiddenByPattern: s.id === 'afternoon' && !day.afternoonNeeded,
-    })),
-    ...(ov.extra || []).map(s => ({ ...s, _isExtra:true, _hiddenByPattern:false })),
+    ...plan().shiftDefs.filter(s => shiftAppliesTo(s, day.dow)).map(s => {
+      const overrideTime = ov.times[s.id];
+      return {
+        ...s,
+        time: overrideTime || (s.dayTimes && s.dayTimes[day.dow]) || s.time,
+        _timeOverridden: !!overrideTime,
+        _isExtra: false,
+        _hiddenByPattern: s.id === 'afternoon' && !day.afternoonNeeded,
+      };
+    }),
+    ...(ov.extra || []).map(s => ({ ...s, _isExtra:true, _hiddenByPattern:false, _timeOverridden:false })),
   ].map(s => ({ ...s, _hidden: !s._isExtra && hidden.has(s.id) }));
 }
 
@@ -1486,17 +1528,52 @@ function renderShiftRow(day, shift, dayIdx) {
     ? `<button class="shift-hide-btn" onclick="hideShift('${day.dateKey}','${shift.id}')" title="Remove this shift from this day only">Hide</button>`
     : `<button class="shift-del-btn"  onclick="removeExtraShift('${day.dateKey}','${shift.id}')" title="Remove this one-time shift">✕</button>`;
 
+  const timeFlag = shift._timeOverridden
+    ? ` <span class="shift-time-flag" title="Changed just for this day">✎</span>` : '';
+
   return `
     <div class="shift-row ${cls}">
       <div class="shift-top">
         <span class="shift-icon">${shift.icon}</span>
-        <span class="shift-time">${esc(shift.time)}</span>
+        <span class="shift-time-wrap" id="stWrap-${day.dateKey}-${shift.id}">
+          <button type="button" class="shift-time-btn" data-time="${esc(shift.time)}"
+            onclick="beginShiftTimeEdit(this,'${day.dateKey}','${shift.id}',${!!shift._isExtra},${!!shift._timeOverridden})"
+            title="Tap to change the time just for this day">${esc(shift.time)}${timeFlag}</button>
+        </span>
         <span class="shift-label">${esc(shift.label)}</span>
         ${rightBtn}
       </div>
       <select class="shift-select" onchange="assign('${day.dateKey}','${shift.id}',this.value)">${opts}</select>
       ${conflict ? `<div class="conflict-note">⚠ ${esc(assigned)} is marked away this day — please pick someone else.</div>` : ''}
     </div>`;
+}
+
+function beginShiftTimeEdit(btn, dateKey, shiftId, isExtra, overridden) {
+  const wrap = btn.closest('.shift-time-wrap');
+  if (!wrap) return;
+  const current = btn.dataset.time || '';
+  wrap.innerHTML = `
+    <span class="shift-time-edit">
+      <input type="text" id="stInput-${dateKey}-${shiftId}" value="${esc(current)}" placeholder="e.g. 9:00a – 1:00p" />
+      <button type="button" class="shift-time-icon-btn" onclick="saveShiftTimeEdit('${dateKey}','${shiftId}',${isExtra})" title="Save">✓</button>
+      <button type="button" class="shift-time-icon-btn" onclick="cancelShiftTimeEdit('${dateKey}')" title="Cancel">✕</button>
+      ${(!isExtra && overridden) ? `<button type="button" class="shift-time-icon-btn" onclick="resetShiftTime('${dateKey}','${shiftId}')" title="Use the normal time for this weekday">↺</button>` : ''}
+    </span>`;
+  const inp = document.getElementById(`stInput-${dateKey}-${shiftId}`);
+  if (inp) { inp.focus(); inp.select(); }
+}
+
+function saveShiftTimeEdit(dateKey, shiftId, isExtra) {
+  const input = document.getElementById(`stInput-${dateKey}-${shiftId}`);
+  if (!input) return;
+  const time = input.value.trim();
+  if (isExtra) setExtraShiftTime(dateKey, shiftId, time);
+  else setShiftTimeOverride(dateKey, shiftId, time);
+}
+
+function cancelShiftTimeEdit(dateKey) {
+  const idx = DAYS.findIndex(d => d.dateKey === dateKey);
+  if (idx >= 0) refreshDayUI(idx);
 }
 
 function toggleAddShiftForm(btn, dateKey) {
