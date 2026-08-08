@@ -502,6 +502,12 @@
       <div class="copy-confirm" id="backupConfirm"></div>
     </div>
 
+    <div class="card" id="restoreBackupCard" style="display:none;">
+      <div class="card-title">🛟 Restore previous schedule</div>
+      <div class="card-help" id="restoreBackupHelp">This device has a saved copy of the schedule from just before the last transfer was loaded, in case that replaced something by mistake.</div>
+      <button class="btn btn-outline btn-block" onclick="restorePreImportBackup()">Restore that previous copy on this device</button>
+    </div>
+
     <footer>Your schedule is saved on this device automatically.</footer>
   </section>
 
@@ -2814,6 +2820,39 @@ function confirmImportBackup() {
   location.reload();
 }
 
+// If a transfer link overwrote this device's schedule, the version from
+// just before that is kept under '-pre-import' so it can be pulled back.
+function updateRestoreBackupUI() {
+  const card = document.getElementById('restoreBackupCard');
+  if (!card) return;
+  const saved = localStorage.getItem(STORAGE_KEY + '-pre-import');
+  card.style.display = saved ? '' : 'none';
+  if (!saved) return;
+  const help = document.getElementById('restoreBackupHelp');
+  if (!help) return;
+  try {
+    const st = JSON.parse(saved);
+    const nAssign =
+      Object.keys((st.plans && st.plans.a && st.plans.a.assignments) || {}).length +
+      Object.keys((st.plans && st.plans.b && st.plans.b.assignments) || {}).length;
+    const start = st.startDate
+      ? new Date(st.startDate + 'T12:00:00').toLocaleDateString('en-US',{ month:'long', day:'numeric', year:'numeric' })
+      : '—';
+    help.textContent = `This device has a saved copy of the schedule from just before the last transfer was loaded (period starting ${start}, ${nAssign} saved shift assignments), in case that replaced something by mistake.`;
+  } catch(_) { /* keep the generic help text */ }
+}
+
+function restorePreImportBackup() {
+  const saved = localStorage.getItem(STORAGE_KEY + '-pre-import');
+  if (!saved) return;
+  if (!confirm('Replace the current schedule on this device with the saved copy from before the last transfer?')) return;
+  const current = localStorage.getItem(STORAGE_KEY);
+  if (current) localStorage.setItem(STORAGE_KEY + '-pre-import', current);
+  else localStorage.removeItem(STORAGE_KEY + '-pre-import');
+  localStorage.setItem(STORAGE_KEY, saved);
+  location.reload();
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Automatic sync — one shared copy of the schedule in a tiny free
 // cloud database (Firebase Realtime Database), reached through an
@@ -3389,6 +3428,7 @@ function renderAll() {
   const notesEl = document.getElementById('notesArea');
   if (notesEl) notesEl.value = state.notes;
 
+  updateRestoreBackupUI();
   renderText();
   refreshCaregiverPick();
   renderCareLog();
