@@ -502,11 +502,7 @@
       <div class="copy-confirm" id="backupConfirm"></div>
     </div>
 
-    <div class="card" id="restoreBackupCard" style="display:none;">
-      <div class="card-title">🛟 Restore previous schedule</div>
-      <div class="card-help" id="restoreBackupHelp">This device has a saved copy of the schedule from just before the last transfer was loaded, in case that replaced something by mistake.</div>
-      <button class="btn btn-outline btn-block" onclick="restorePreImportBackup()">Restore that previous copy on this device</button>
-    </div>
+    <div id="restoreBackupCards"></div>
 
     <footer>Your schedule is saved on this device automatically.</footer>
   </section>
@@ -2820,16 +2816,17 @@ function confirmImportBackup() {
   location.reload();
 }
 
-// If a transfer link overwrote this device's schedule, the version from
-// just before that is kept under '-pre-import' so it can be pulled back.
-function updateRestoreBackupUI() {
-  const card = document.getElementById('restoreBackupCard');
-  if (!card) return;
-  const saved = localStorage.getItem(STORAGE_KEY + '-pre-import');
-  card.style.display = saved ? '' : 'none';
-  if (!saved) return;
-  const help = document.getElementById('restoreBackupHelp');
-  if (!help) return;
+// Two flows stash the previous local state as an emergency backup before
+// replacing it: loading a transfer link ('-pre-import') and adopting an
+// update pulled from another synced device ('-pre-sync', see adoptRemote).
+// Surface whichever exist so an accidental replacement can be undone
+// without dev tools.
+const EMERGENCY_BACKUP_KINDS = [
+  { suffix: '-pre-sync',   label: 'from just before this device picked up a schedule update from another device' },
+  { suffix: '-pre-import', label: 'from just before this device loaded a schedule transfer link' },
+];
+
+function describeBackupState(saved) {
   try {
     const st = JSON.parse(saved);
     const nAssign =
@@ -2838,18 +2835,50 @@ function updateRestoreBackupUI() {
     const start = st.startDate
       ? new Date(st.startDate + 'T12:00:00').toLocaleDateString('en-US',{ month:'long', day:'numeric', year:'numeric' })
       : '—';
-    help.textContent = `This device has a saved copy of the schedule from just before the last transfer was loaded (period starting ${start}, ${nAssign} saved shift assignments), in case that replaced something by mistake.`;
-  } catch(_) { /* keep the generic help text */ }
+    return `period starting ${start}, ${nAssign} saved shift assignments`;
+  } catch(_) { return ''; }
 }
 
-function restorePreImportBackup() {
-  const saved = localStorage.getItem(STORAGE_KEY + '-pre-import');
+function updateRestoreBackupUI() {
+  const container = document.getElementById('restoreBackupCards');
+  if (!container) return;
+  container.innerHTML = EMERGENCY_BACKUP_KINDS.map(({ suffix, label }) => {
+    const saved = localStorage.getItem(STORAGE_KEY + suffix);
+    if (!saved) return '';
+    const detail = describeBackupState(saved);
+    return `
+    <div class="card">
+      <div class="card-title">🛟 Restore previous schedule</div>
+      <div class="card-help">This device has a saved copy of the schedule ${esc(label)}${detail ? ' (' + esc(detail) + ')' : ''}, in case that replaced something by mistake.</div>
+      <button class="btn btn-outline btn-block" onclick="restoreEmergencyBackup('${suffix}')">Restore that previous copy on this device</button>
+    </div>`;
+  }).join('');
+}
+
+function restoreEmergencyBackup(suffix) {
+  const key = STORAGE_KEY + suffix;
+  const saved = localStorage.getItem(key);
   if (!saved) return;
-  if (!confirm('Replace the current schedule on this device with the saved copy from before the last transfer?')) return;
+  const pushEverywhere = !!syncCfg();
+  const msg = pushEverywhere
+    ? 'Replace the current schedule on this device with this saved backup — and send it to every other connected device too?'
+    : 'Replace the current schedule on this device with this saved backup?';
+  if (!confirm(msg)) return;
   const current = localStorage.getItem(STORAGE_KEY);
-  if (current) localStorage.setItem(STORAGE_KEY + '-pre-import', current);
-  else localStorage.removeItem(STORAGE_KEY + '-pre-import');
+  if (current) localStorage.setItem(key, current);
+  else localStorage.removeItem(key);
   localStorage.setItem(STORAGE_KEY, saved);
+  if (pushEverywhere) {
+    // Same trick as confirmImportBackup: treat the restored copy as the
+    // newest version so it gets pushed to the cloud (and from there to
+    // every other device) on reload, instead of being overwritten right
+    // back by the bad copy still sitting in the cloud.
+    syncMeta.rev = 0;
+    syncMeta.baseDevice = '';
+    syncMeta.dirty = true;
+    syncMeta.editedAt = Date.now();
+    saveSyncMeta();
+  }
   location.reload();
 }
 
