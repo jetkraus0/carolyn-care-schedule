@@ -381,21 +381,15 @@
     </div>
 
     <div class="card">
-      <div class="card-title">📄 Weekday schedule</div>
+      <div class="card-title">📄 Full schedule</div>
+      <div class="card-help">All fourteen days in one message — weekdays and weekends together.</div>
       <label class="switch-row">
         <input type="checkbox" id="msgOpenOnly" onchange="onMsgOpenOnlyToggle(this.checked)" />
         Only list shifts that still need someone
       </label>
       <div class="text-output" id="textOut"></div>
-      <button class="copy-btn" onclick="copyText('textOut','copyConfirm')">📋&nbsp; Copy weekday message</button>
+      <button class="copy-btn" onclick="copyText('textOut','copyConfirm')">📋&nbsp; Copy schedule message</button>
       <div class="copy-confirm" id="copyConfirm"></div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">🌅 Weekend schedule</div>
-      <div class="text-output" id="textOutWknd"></div>
-      <button class="copy-btn" onclick="copyText('textOutWknd','copyConfirmWknd')">📋&nbsp; Copy weekend message</button>
-      <div class="copy-confirm" id="copyConfirmWknd"></div>
     </div>
 
     <div class="card">
@@ -1713,82 +1707,96 @@ function onMsgOpenOnlyToggle(checked) {
   renderText();
 }
 
-function renderText() { renderWeekdayText(); renderWeekendText(); renderHours(); }
+function renderText() { renderScheduleText(); renderHours(); }
 
-function renderWeekdayText() {
-  const onlyOpen = state.msgOpenOnly;
-  const signoff  = state.signoff;
-  const lines    = [`Carolyn's Weekday Coverage — ${periodLabel()}`, ...planSubtitleLines(), ''];
-  const WKDAY    = new Set([1,2,3,4,5]);
-
-  DAYS.forEach((day, i) => {
-    if (!WKDAY.has(day.dow)) return;
-    const shifts = neededShifts(i);
-    const rows   = shifts.map(s => {
-      const a = getAssigned(day.dateKey, s.id);
-      if (onlyOpen && a) return null;
-      return `  • ${s.time || s.label}: ${a || 'NEEDED'}`;
-    }).filter(Boolean);
-
-    if (onlyOpen && rows.length === 0) return;
-    lines.push(day.dateShort);
-    lines.push(rows.length ? rows.join('\n') : '  ✓ All covered');
-    lines.push('');
-  });
-
-  if (signoff) { lines.push('Thanks –'); lines.push(signoff); }
-  const el = document.getElementById('textOut');
-  if (el) el.textContent = lines.join('\n').trimEnd();
+// "Mon, Sep 7" — short enough to keep one shift per line in a text message.
+function msgDate(dateKey) {
+  return new Date(dateKey + 'T12:00:00')
+    .toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
 }
 
-function renderWeekendText() {
+// "  ☀️ Morning (8:30a – 1:00p) — Kathy"
+function msgShiftLine(shift, assigned) {
+  const when = shift.time ? ` (${shift.time})` : '';
+  return `  ${shift.icon || '•'} ${shift.label}${when} — ${assigned || '❗ NEEDS SOMEONE'}`;
+}
+
+// One chronological message for the whole two weeks. A Saturday + Sunday that
+// one person covers straight through collapses into a single Sat–Mon line.
+function renderScheduleText() {
+  const onlyOpen = state.msgOpenOnly;
   const signoff  = state.signoff;
-  const lines    = [`Carolyn's Weekend Coverage — ${periodLabel()}`, ...planSubtitleLines(), ''];
-  const WKEND    = new Set([0,6]);
-  const wkDays   = DAYS.map((day,i)=>({day,i})).filter(({day})=>WKEND.has(day.dow));
+
+  let total = 0, open = 0;
+  DAYS.forEach((day, i) => neededShifts(i).forEach(s => {
+    total++;
+    if (!getAssigned(day.dateKey, s.id)) open++;
+  }));
+
+  const lines = [`Carolyn's Schedule — ${periodLabel()}`, ...planSubtitleLines()];
+  if (!open)      lines.push(`✓ All ${total} shifts are covered.`);
+  else if (onlyOpen) lines.push(`Open shifts only — ${open} still need${open === 1 ? 's' : ''} someone.`);
+  else            lines.push(`${open} of ${total} shifts still need someone.`);
+  lines.push('');
+
   // The compact "Sat – Mon 8:30a" line describes a weekend block that ends
   // with an overnight — only valid for plans that have an overnight shift.
   const hasOvernight = plan().shiftDefs.some(s => s.id === 'overnight');
-
+  // Week headers are held back until a day actually prints under them, so the
+  // "open shifts only" view never shows an empty week.
+  let pending  = '── Week 1 ──';
+  let week2Set = false;
+  const pushHeader = () => { if (pending) { lines.push(pending, ''); pending = null; } };
   let idx = 0;
-  while (idx < wkDays.length) {
-    const { day: sat, i: si } = wkDays[idx];
-    const next = wkDays[idx+1];
-    const block = (next && next.day.dow===0) ? [{day:sat,i:si}, next] : [{day:sat,i:si}];
 
-    const names = new Set();
-    let allFilled = true;
-    block.forEach(({day,i})=>{
-      const needed = neededShifts(i);
-      if (!needed.length) return;
-      needed.forEach(s => {
-        const a = getAssigned(day.dateKey, s.id);
-        if (a) names.add(a); else allFilled = false;
-      });
-    });
+  while (idx < DAYS.length) {
+    if (idx >= 7 && !week2Set) { pending = '── Week 2 ──'; week2Set = true; }
 
-    if (names.size === 1 && allFilled && hasOvernight) {
-      const satD = new Date(sat.dateKey+'T12:00:00');
-      const monD = new Date(sat.dateKey+'T12:00:00'); monD.setDate(monD.getDate()+2);
-      const fmt  = d => d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
-      lines.push(`${fmt(satD)} – ${fmt(monD)} 8:30a`);
-      lines.push(`  ${[...names][0]}`);
-    } else {
-      block.forEach(({day,i}) => {
-        lines.push(day.dateShort);
+    const day  = DAYS[idx];
+    const next = DAYS[idx + 1];
+
+    // Whole weekend covered by one person? Say it once instead of six times.
+    if (hasOvernight && day.dow === 6 && next && next.dow === 0) {
+      const names = new Set();
+      let allFilled = true;
+      [ [day, idx], [next, idx + 1] ].forEach(([d, i]) => {
         neededShifts(i).forEach(s => {
-          const a = getAssigned(day.dateKey, s.id);
-          lines.push(`  • ${s.time||s.label}: ${a||'NEEDED'}`);
+          const a = getAssigned(d.dateKey, s.id);
+          if (a) names.add(a); else allFilled = false;
         });
       });
+      if (allFilled && names.size === 1) {
+        if (!onlyOpen) {
+          pushHeader();
+          lines.push(`${msgDate(day.dateKey)} – ${msgDate(addDaysToKey(day.dateKey, 2))} 8:30a`);
+          lines.push(`  ✓ ${[...names][0]} — the whole weekend, straight through`);
+          lines.push('');
+        }
+        idx += 2;
+        continue;
+      }
     }
-    lines.push('');
-    idx += block.length;
+
+    const shifts = neededShifts(idx);
+    const rows   = shifts
+      .map(s => {
+        const a = getAssigned(day.dateKey, s.id);
+        return (onlyOpen && a) ? null : msgShiftLine(s, a);
+      })
+      .filter(Boolean);
+
+    if (!(onlyOpen && rows.length === 0)) {
+      pushHeader();
+      lines.push(msgDate(day.dateKey));
+      lines.push(rows.length ? rows.join('\n') : '  ✓ Nothing scheduled');
+      lines.push('');
+    }
+    idx++;
   }
 
-  if (!wkDays.length) lines.push('No weekend days in this schedule period.');
   if (signoff) { lines.push('Thanks –'); lines.push(signoff); }
-  const el = document.getElementById('textOutWknd');
+
+  const el = document.getElementById('textOut');
   if (el) el.textContent = lines.join('\n').trimEnd();
 }
 
