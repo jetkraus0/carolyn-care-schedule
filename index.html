@@ -286,7 +286,6 @@
     .view-open{font-size:.95rem;font-weight:800;color:var(--red-fg);}
     .view-row .shift-top{margin-bottom:4px;}
     .view-today{outline:3px solid var(--blue);outline-offset:-3px;}
-    .nav-arrow:disabled{opacity:.3;cursor:default;}
     .view-foot{font-size:.85rem;color:var(--muted);line-height:1.5;text-align:center;}
 
     /* ── Toast ── */
@@ -2378,13 +2377,13 @@ async function cgSend() {
 // Cloud document at  <db>/care/<viewCode>.json :
 //   { rev, updatedAt, state }   state = 'js.' + b64url(payload JSON)
 // payload = { v:1, d: [[dateKey, [[icon,label,time,who]…]]…] }
-// d is whole 2-week periods on the schedule's own grid, oldest first.
+// d is today's 2-week period (on the schedule's own grid) plus the next
+// one, so the page rolls over by itself even if nobody opens the app.
 // Uncompressed on purpose: older phones can't gunzip.
 // ═══════════════════════════════════════════════════════════════════
 
 const VIEW_PUB_KEY   = 'carolyn-care-viewpub';    // last copy this device published
 const VIEW_WHO_KEY   = 'carolyn-care-view-who';   // the viewer's "whose shifts?" choice
-const VIEW_PAST_DAYS = 62, VIEW_AHEAD_DAYS = 120; // how much schedule the link carries
 
 function daysBetweenKeys(a, b) {
   return Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000);
@@ -2400,27 +2399,12 @@ function buildViewLink() {
   return location.origin + location.pathname + '#schedule=' + b64urlEncode(JSON.stringify({ u:c.u, v:state.viewLink.c }));
 }
 
-// Every period from the earliest to the latest one with anything in it —
-// always including today's and the one open in the app — within
-// VIEW_PAST_DAYS back and VIEW_AHEAD_DAYS ahead.
 function buildViewPayload(todayKey) {
-  const today  = todayKey || toDateKey(new Date());
-  const anchor = state.startDate;
-  const idx    = d => Math.floor(daysBetweenKeys(anchor, d) / 14);
-  const first  = addDaysToKey(today, -VIEW_PAST_DAYS);
-  const last   = addDaysToKey(today, VIEW_AHEAD_DAYS);
-  let lo = Math.min(0, idx(today)), hi = Math.max(0, idx(today));
-  for (const k in plan().assignments) {
-    const d = k.split('|')[0];
-    if (d < first || d > last) continue;
-    lo = Math.min(lo, idx(d));
-    hi = Math.max(hi, idx(d));
-  }
-  lo = Math.max(lo, idx(first));
-  hi = Math.min(hi, idx(last));
-  const days = [];
-  const end  = addDaysToKey(anchor, (hi + 1) * 14);
-  for (let d = addDaysToKey(anchor, lo * 14); d < end; d = addDaysToKey(d, 1)) {
+  const today = todayKey || toDateKey(new Date());
+  const start = addDaysToKey(state.startDate, Math.floor(daysBetweenKeys(state.startDate, today) / 14) * 14);
+  const days  = [];
+  for (let i = 0; i < 28; i++) {
+    const d = addDaysToKey(start, i);
     days.push([d, careShiftsFor(makeDay(d)).map(s => [s.icon || '', s.label, s.time || '', getAssigned(d, s.id)])]);
   }
   return { v:1, d: days };
@@ -2468,7 +2452,7 @@ function renderViewLinkCard() {
   }
   el.innerHTML = `
     <div class="card-title">🔗 Schedule link for caregivers</div>
-    <div class="card-help">One link for all your caregivers. It opens the schedule — who's on every shift — starting on the current two weeks, and it <b>updates by itself</b> whenever you make a change, so you never need to resend it.<br><br>
+    <div class="card-help">One link for all your caregivers. It shows the current two weeks — who's on every shift — and it <b>updates by itself</b> whenever you make a change, so you never need to resend it.<br><br>
       They can only look: nothing on it can be changed, and it never shows pay rates, hours, notes, the care log or anyone's time away.</div>
     <button class="copy-btn" onclick="copyViewLink()">🔗&nbsp; Copy the caregiver link</button>
     <div class="copy-confirm" id="viewLinkConfirm"></div>
@@ -2507,7 +2491,7 @@ function replaceViewLink() {
 
 // ── The view-only page a caregiver sees ──
 
-let viewCfg = null, viewData = null, viewFocusKey = '', viewWho = '', viewEs = null;
+let viewCfg = null, viewData = null, viewWho = '', viewEs = null;
 
 function tryRenderScheduleView() {
   if (typeof location === 'undefined') return false;
@@ -2538,7 +2522,6 @@ async function renderScheduleView(cfg) {
   if (hp) hp.textContent = 'Schedule';
   if (!cfg) return viewFail("This link doesn't look right — ask the family for a fresh one.");
   viewCfg = cfg;
-  viewFocusKey = toDateKey(new Date());
   try { viewWho = localStorage.getItem(VIEW_WHO_KEY) || ''; } catch(_) {}
   document.getElementById('mainEl').innerHTML = '<div class="card care-empty">Loading the schedule…</div>';
   await loadViewData(true);
@@ -2587,31 +2570,17 @@ async function loadViewData(first) {
   }
 }
 
-function viewGo(dir) {
-  if (!viewData || !viewData.d.length) return;
-  const count = Math.ceil(viewData.d.length / 14);
-  const i = Math.min(count - 1, Math.max(0, viewPeriodIdx() + dir));
-  viewFocusKey = viewData.d[i * 14][0];
-  renderViewSchedule();
-  if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, 0);
-}
-
-function viewGoToday() {
-  viewFocusKey = toDateKey(new Date());
-  renderViewSchedule();
-}
-
 function setViewWho(v) {
   viewWho = v;
   try { localStorage.setItem(VIEW_WHO_KEY, v); } catch(_) {}
   renderViewSchedule();
 }
 
-// The period holding viewFocusKey (today, until they tap ‹ ›),
-// clamped to the periods the link carries.
-function viewPeriodIdx(key) {
+// The period holding today, clamped to the periods the link carries
+// (checked on every render, so an open page rolls over at midnight).
+function viewPeriodIdx() {
   const count = Math.ceil(viewData.d.length / 14);
-  const i = Math.floor(daysBetweenKeys(viewData.d[0][0], key || viewFocusKey) / 14);
+  const i = Math.floor(daysBetweenKeys(viewData.d[0][0], toDateKey(new Date())) / 14);
   return Math.min(count - 1, Math.max(0, i));
 }
 
@@ -2626,14 +2595,12 @@ function renderViewSchedule() {
   }
 
   const today = toDateKey(new Date());
-  const count = Math.ceil(data.d.length / 14);
   const idx   = viewPeriodIdx();
   const days  = data.d.slice(idx * 14, idx * 14 + 14);
   const fmt   = (k, o) => new Date(k + 'T12:00:00').toLocaleDateString('en-US', o);
   const lastKey = days[days.length - 1][0];
   const label = `${fmt(days[0][0], { month:'short', day:'numeric' })} – ${fmt(lastKey, { month:'short', day:'numeric' })}, ${fmt(lastKey, { year:'numeric' })}`;
   if (hp) hp.textContent = label;
-  const canGoToday = viewPeriodIdx(today) !== idx;
 
   const names = [...new Set(data.d.flatMap(x => x[1].map(s => s[3]).filter(Boolean)))].sort();
   if (viewWho && !names.includes(viewWho)) names.push(viewWho);
@@ -2668,14 +2635,11 @@ function renderViewSchedule() {
 
   mainEl.innerHTML = `
     <div class="card period-nav">
-      <button class="nav-arrow" onclick="viewGo(-1)" aria-label="Previous two weeks" ${idx === 0 ? 'disabled' : ''}>‹</button>
       <div class="period-center">
         <div class="period-label">${label}</div>
-        <div class="period-sub">2-week schedule &nbsp;·&nbsp; tap ‹ › to change weeks</div>
+        <div class="period-sub">Current 2-week schedule</div>
       </div>
-      <button class="nav-arrow" onclick="viewGo(1)" aria-label="Next two weeks" ${idx >= count - 1 ? 'disabled' : ''}>›</button>
     </div>
-    ${!canGoToday ? '' : `<div class="jump-row" style="margin-bottom:12px;"><button class="btn btn-sm btn-outline" onclick="viewGoToday()">Back to this week</button></div>`}
     <div class="card">
       <label for="viewWhoPick" class="card-title" style="display:block;">Whose shifts?</label>
       <select id="viewWhoPick" class="msg-select" onchange="setViewWho(this.value)">${opts}</select>
