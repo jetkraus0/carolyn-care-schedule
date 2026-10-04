@@ -32,18 +32,9 @@
 
     /* ── Header ── */
     .app-header{background:linear-gradient(135deg,#1e40af,#1d4ed8);color:white;padding:22px 16px 18px;text-align:center;}
-    body.plan-b .app-header{background:linear-gradient(135deg,#5b21b6,#7c3aed);}
     .app-header h1{font-size:1.45rem;font-weight:800;margin-bottom:3px;}
     .app-header p{font-size:.95rem;opacity:.9;}
 
-    /* ── Plan switcher ── */
-    .plan-switch{display:flex;background:#dbe3ec;border-radius:14px;padding:4px;gap:4px;margin-bottom:8px;}
-    .plan-btn{flex:1;border:none;border-radius:11px;padding:11px 8px;font-size:.9rem;font-weight:800;cursor:pointer;background:none;color:var(--muted);min-height:46px;}
-    .plan-btn.active{background:white;color:var(--blue-dark);box-shadow:0 1px 3px rgba(0,0,0,.15);}
-    body.plan-b .plan-btn.active{color:var(--purple-dark);}
-    .plan-caption{font-size:.8rem;color:var(--purple-dark);font-weight:700;text-align:center;margin-bottom:12px;display:none;}
-    .plan-edit-note{display:block;margin-top:5px;font-weight:700;color:var(--blue-dark);}
-    body.plan-b .plan-edit-note{color:var(--purple-dark);}
 
     /* ── Layout / tabs ── */
     .main{max-width:640px;margin:0 auto;padding:16px 14px 120px;}
@@ -53,7 +44,6 @@
     .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 0 8px;background:none;border:none;font-size:.8rem;font-weight:700;color:var(--muted);cursor:pointer;}
     .tab .tab-icon{font-size:1.5rem;line-height:1;}
     .tab.active{color:var(--blue-dark);}
-    body.plan-b .tab.active{color:var(--purple-dark);}
     .tab.active .tab-icon{transform:scale(1.08);}
 
     .card{background:var(--card);border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.07);}
@@ -74,7 +64,6 @@
     .view-switch{display:flex;background:#dbe3ec;border-radius:12px;padding:3px;gap:3px;margin:12px 0 0;}
     .view-btn{flex:1;border:none;border-radius:9px;padding:9px;font-size:.88rem;font-weight:800;color:var(--muted);background:none;cursor:pointer;min-height:42px;}
     .view-btn.active{background:white;color:var(--blue-dark);box-shadow:0 1px 3px rgba(0,0,0,.12);}
-    body.plan-b .view-btn.active{color:var(--purple-dark);}
     .cal-card{padding:12px;}
     .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;}
     .cal-head{text-align:center;font-size:.7rem;font-weight:800;color:var(--muted);padding:2px 0 4px;}
@@ -84,7 +73,6 @@
     .cal-red{background:var(--red-bg);color:var(--red-fg);}
     .cal-yellow{background:var(--yellow-bg);color:var(--yellow-fg);}
     .cal-selected{outline:3px solid var(--blue-dark);outline-offset:1px;}
-    body.plan-b .cal-selected{outline-color:var(--purple-dark);}
     .cal-num{font-size:1.05rem;font-weight:800;line-height:1;}
     .cal-sub{font-size:.62rem;font-weight:700;line-height:1;}
     .cal-month{position:absolute;top:3px;left:5px;font-size:.58rem;font-weight:800;opacity:.75;}
@@ -187,7 +175,6 @@
     .tpl-days-label{font-size:.78rem;font-weight:700;color:var(--muted);margin-right:2px;}
     .day-chip{width:38px;height:34px;border-radius:9px;border:1.5px solid var(--border);background:white;color:var(--muted);font-size:.72rem;font-weight:800;cursor:pointer;padding:0;}
     .day-chip.on{background:#dbeafe;border-color:var(--blue);color:var(--blue-dark);}
-    body.plan-b .day-chip.on{background:#ede9fe;border-color:var(--purple);color:var(--purple-dark);}
     .tpl-day-details{margin:2px 0 0 4px;}
     .tpl-day-details summary{display:inline-flex;font-size:.82rem;font-weight:700;color:var(--muted);cursor:pointer;list-style:none;user-select:none;padding:4px 0;}
     .tpl-day-details summary::-webkit-details-marker{display:none;}
@@ -228,7 +215,6 @@
     .hours-top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
     .hours-name{font-size:1rem;font-weight:800;}
     .hours-total{font-size:1.05rem;font-weight:800;color:var(--blue-dark);white-space:nowrap;}
-    body.plan-b .hours-total{color:var(--purple-dark);}
     .hours-sub{font-size:.8rem;color:var(--muted);margin-top:2px;}
     .hours-shifts{margin-top:5px;}
     .hours-shifts summary{font-size:.78rem;color:var(--muted);cursor:pointer;list-style:none;font-weight:700;user-select:none;}
@@ -295,6 +281,14 @@
     .care-type-tag{font-size:.75rem;color:var(--muted);font-weight:700;white-space:nowrap;max-width:40%;overflow:hidden;text-overflow:ellipsis;}
     .add-tpl-row select{border:1.5px solid var(--border);border-radius:9px;padding:9px 10px;background:white;}
 
+    /* ── Caregiver schedule link (view-only page) ── */
+    .view-who{font-size:1rem;font-weight:800;color:var(--green-fg);}
+    .view-open{font-size:.95rem;font-weight:800;color:var(--red-fg);}
+    .view-row .shift-top{margin-bottom:4px;}
+    .view-today{outline:3px solid var(--blue);outline-offset:-3px;}
+    .nav-arrow:disabled{opacity:.3;cursor:default;}
+    .view-foot{font-size:.85rem;color:var(--muted);line-height:1.5;text-align:center;}
+
     /* ── Toast ── */
     #toast{position:fixed;bottom:calc(84px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#1e293b;color:white;padding:9px 20px;border-radius:22px;font-size:.85rem;font-weight:700;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60;white-space:nowrap;}
     #toast.show{opacity:.93;}
@@ -311,12 +305,6 @@
 
 <main class="main" id="mainEl">
 
-  <!-- ── Plan switcher (visible on every tab) ── -->
-  <div class="plan-switch">
-    <button class="plan-btn active" id="planBtn-a" onclick="switchPlan('a')">Regular schedule</button>
-    <button class="plan-btn" id="planBtn-b" onclick="switchPlan('b')">If Bob stays over</button>
-  </div>
-  <div class="plan-caption" id="planCaption"></div>
 
   <!-- ════════ SCHEDULE TAB ════════ -->
   <section id="panel-schedule" class="panel active">
@@ -359,7 +347,6 @@
     <div class="card">
       <div class="card-title">📋 Care checks, shift by shift</div>
       <div class="card-help">Whoever is with Carolyn fills these in during their shift — everything saves by itself. Blank answers are fine; record what you noticed. Not with the phone? Text the caregiver a fill-in form from their shift below, then paste their reply back in and the answers fill themselves.
-        <span class="plan-edit-note" id="planNoteCare"></span>
       </div>
     </div>
     <div id="careLogBody"></div>
@@ -371,7 +358,6 @@
     <div class="card">
       <div class="card-title">Send the schedule by text</div>
       <div class="card-help">Tap a green <b>Copy</b> button, then open your text messages and paste it in.
-        <span class="plan-edit-note" id="planNoteMsg"></span>
       </div>
       <div class="signas-row">
         <label for="signoffInput">Sign messages as:</label>
@@ -392,6 +378,8 @@
       <div class="copy-confirm" id="copyConfirm"></div>
     </div>
 
+    <div class="card" id="viewLinkCard"></div>
+
     <div class="card">
       <div class="card-title">👤 Message for one caregiver</div>
       <div class="card-help">A personal list of just their shifts — good for people who don't use the calendar.</div>
@@ -406,7 +394,6 @@
     <div class="card">
       <div class="card-title">📆 Add to phone calendar</div>
       <div class="card-help">Downloads a calendar file with every <b>assigned</b> shift in these two weeks. Open the file and tap <b>Add All</b> on an iPhone (or import it into Google Calendar) and the shifts appear as regular calendar events.
-        <span class="plan-edit-note" id="planNoteIcs"></span>
       </div>
       <button class="copy-btn" onclick="downloadIcs()">⬇&nbsp; Download calendar file</button>
       <div class="copy-confirm" id="icsConfirm"></div>
@@ -419,7 +406,6 @@
     <div class="card">
       <div class="card-title">⏱ Hours this pay period</div>
       <div class="card-help">Counted automatically from the schedule. If someone covered a shift, change that day's dropdown on the Schedule page and their hours follow. Use <b>Adjust</b> for extra time that isn't a shift — add hours like <b>1.5</b> or subtract like <b>-2</b>. Adjustments are saved separately for each pay period.
-        <span class="plan-edit-note" id="planNoteHours"></span>
       </div>
       <div id="hoursList"></div>
       <div class="hours-skip" id="hoursSkipped"></div>
@@ -478,7 +464,6 @@
     <div class="card">
       <div class="card-title">🕐 Shift times</div>
       <div class="card-help">Change a time here and it changes everywhere. The day buttons control which days of the week a shift appears — weekends use one 12-hour Day shift instead of the weekday ones.
-        <span class="plan-edit-note" id="planNoteShifts"></span>
       </div>
       <div id="shiftTemplateEditor"></div>
     </div>
@@ -486,7 +471,6 @@
     <div class="card">
       <div class="card-title">📆 A normal week</div>
       <div class="card-help">How a typical week works. New schedules start out filled in from this — you can always change any single day afterward on the Schedule page.
-        <span class="plan-edit-note" id="planNoteWeek"></span>
       </div>
       <div id="patternEditor"></div>
     </div>
@@ -494,7 +478,6 @@
     <div class="card">
       <div class="card-title">↺ Start this schedule over</div>
       <div class="card-help">Clears every shift in the current two weeks and fills them back in from "A normal week" above. Use this if things got messy.
-        <span class="plan-edit-note" id="planNoteReset"></span>
       </div>
       <button class="btn btn-outline btn-block" onclick="confirmResetToPattern()">Re-fill schedule from the normal week</button>
     </div>
@@ -707,7 +690,9 @@ function normalizeState(s) {
         };
         delete s.shiftDefs; delete s.pattern; delete s.assignments; delete s.dayOverrides;
       }
-      if (s.activePlan !== 'a' && s.activePlan !== 'b') s.activePlan = 'a';
+      // The "If Bob stays over" backup plan is retired from the app (Oct 2026):
+      // always use the regular plan. plans.b stays saved, untouched.
+      s.activePlan = 'a';
 
       for (const pk in s.plans) {
         const pl = s.plans[pk];
@@ -774,6 +759,7 @@ function normalizeState(s) {
       s.careFields.forEach(f => { if (f.type === 'choice' && !Array.isArray(f.options)) f.options = []; });
       if (!s.careLog)                         s.careLog     = {};
       if (s.sync && !(typeof s.sync.u === 'string' && typeof s.sync.c === 'string')) delete s.sync;
+      if (s.viewLink && typeof s.viewLink.c !== 'string') delete s.viewLink;
       return s;
 }
 
@@ -812,47 +798,6 @@ function switchTab(name) {
     if (tab   && tab.classList)   tab.classList[t === name ? 'add' : 'remove']('active');
   });
   if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, 0);
-}
-
-function switchPlan(p) {
-  if (!state.plans[p] || state.activePlan === p) return;
-  state.activePlan = p;
-  openOnlyView = false;
-  save();
-  refreshDays();
-  selectedDayIdx = defaultSelectedDay();
-  updatePlanUI();
-  renderShiftTemplateEditor();
-  renderPatternEditor();
-  renderSchedule();
-  renderText();
-  renderPersonText();
-  renderCareLog();
-}
-
-function updatePlanUI() {
-  ['a','b'].forEach(p => {
-    const btn = document.getElementById('planBtn-' + p);
-    if (!btn) return;
-    if (state.plans[p] && state.plans[p].name) btn.textContent = state.plans[p].name;
-    if (btn.classList) btn.classList[state.activePlan === p ? 'add' : 'remove']('active');
-  });
-  if (document.body && document.body.classList)
-    document.body.classList[state.activePlan === 'b' ? 'add' : 'remove']('plan-b');
-  const cap = document.getElementById('planCaption');
-  if (cap) {
-    const isB = state.activePlan === 'b';
-    cap.textContent = isB ? 'This is the backup plan — your regular schedule is saved and untouched.' : '';
-    if (cap.style) cap.style.display = isB ? 'block' : 'none';
-  }
-  const notes = { planNoteMsg:'Messages come from: ', planNoteShifts:'These changes apply to: ',
-                  planNoteWeek:'These changes apply to: ', planNoteReset:'This clears: ',
-                  planNoteIcs:'Exports: ', planNoteHours:'Counting hours for: ',
-                  planNoteCare:'Shifts come from: ' };
-  for (const id in notes) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = notes[id] + plan().name;
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2422,6 +2367,326 @@ async function cgSend() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Caregiver schedule link — one view-only link for every caregiver.
+// Synced devices publish a scrubbed copy of the active plan (dates,
+// shift times, who's on) to its own secret path in the sync database.
+// The link knows only that path — never the family's sync code — so
+// it can't reach pay, hours, notes, the care log or away dates, and
+// the page has nothing to edit. It updates live, like sync does.
+//
+// Cloud document at  <db>/care/<viewCode>.json :
+//   { rev, updatedAt, state }   state = 'js.' + b64url(payload JSON)
+// payload = { v:1, d: [[dateKey, [[icon,label,time,who]…]]…] }
+// d is whole 2-week periods on the schedule's own grid, oldest first.
+// Uncompressed on purpose: older phones can't gunzip.
+// ═══════════════════════════════════════════════════════════════════
+
+const VIEW_PUB_KEY   = 'carolyn-care-viewpub';    // last copy this device published
+const VIEW_WHO_KEY   = 'carolyn-care-view-who';   // the viewer's "whose shifts?" choice
+const VIEW_PAST_DAYS = 62, VIEW_AHEAD_DAYS = 120; // how much schedule the link carries
+
+function daysBetweenKeys(a, b) {
+  return Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000);
+}
+
+function viewDocUrl(u, code) {
+  return u + '/care/' + encodeURIComponent(code) + '.json';
+}
+
+function buildViewLink() {
+  const c = syncCfg();
+  if (!c || !state.viewLink) return null;
+  return location.origin + location.pathname + '#schedule=' + b64urlEncode(JSON.stringify({ u:c.u, v:state.viewLink.c }));
+}
+
+// Every period from the earliest to the latest one with anything in it —
+// always including today's and the one open in the app — within
+// VIEW_PAST_DAYS back and VIEW_AHEAD_DAYS ahead.
+function buildViewPayload(todayKey) {
+  const today  = todayKey || toDateKey(new Date());
+  const anchor = state.startDate;
+  const idx    = d => Math.floor(daysBetweenKeys(anchor, d) / 14);
+  const first  = addDaysToKey(today, -VIEW_PAST_DAYS);
+  const last   = addDaysToKey(today, VIEW_AHEAD_DAYS);
+  let lo = Math.min(0, idx(today)), hi = Math.max(0, idx(today));
+  for (const k in plan().assignments) {
+    const d = k.split('|')[0];
+    if (d < first || d > last) continue;
+    lo = Math.min(lo, idx(d));
+    hi = Math.max(hi, idx(d));
+  }
+  lo = Math.max(lo, idx(first));
+  hi = Math.min(hi, idx(last));
+  const days = [];
+  const end  = addDaysToKey(anchor, (hi + 1) * 14);
+  for (let d = addDaysToKey(anchor, lo * 14); d < end; d = addDaysToKey(d, 1)) {
+    days.push([d, careShiftsFor(makeDay(d)).map(s => [s.icon || '', s.label, s.time || '', getAssigned(d, s.id)])]);
+  }
+  return { v:1, d: days };
+}
+
+// Called after every successful sync. Skips the write when nothing
+// changed — except once per page load, so a copy someone tampered with
+// (the link's path is writable, like every sync path) gets put right.
+let viewPubBusy = false, viewPubQueued = false, viewPubDoneThisLoad = false;
+async function publishCaregiverView() {
+  const c = syncCfg();
+  if (!c || !state.viewLink) return;
+  if (viewPubBusy) { viewPubQueued = true; return; }
+  viewPubBusy = true;
+  try {
+    const code = state.viewLink.c;
+    const json = JSON.stringify(buildViewPayload());
+    let lastPub = null;
+    try { lastPub = JSON.parse(localStorage.getItem(VIEW_PUB_KEY)); } catch(_) {}
+    if (viewPubDoneThisLoad && lastPub && lastPub.c === code && lastPub.json === json) return;
+    const resp = await fetch(viewDocUrl(c.u, code), {
+      method:'PUT', cache:'no-store',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ rev:1, updatedAt:Date.now(), state:'js.' + b64urlEncode(json) }),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    viewPubDoneThisLoad = true;
+    try { localStorage.setItem(VIEW_PUB_KEY, JSON.stringify({ c:code, json })); } catch(_) {}
+  } catch(_) {
+    // Next sync tries again
+  } finally {
+    viewPubBusy = false;
+    if (viewPubQueued) { viewPubQueued = false; setTimeout(publishCaregiverView, 50); }
+  }
+}
+
+function renderViewLinkCard() {
+  const el = document.getElementById('viewLinkCard');
+  if (!el) return;
+  if (!syncCfg()) {
+    el.innerHTML = `
+      <div class="card-title">🔗 Schedule link for caregivers</div>
+      <div class="card-help">Turn on <b>Automatic sync</b> (Set-Up tab) first — the caregiver link reads the schedule from it, which is how it stays up to date by itself.</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="card-title">🔗 Schedule link for caregivers</div>
+    <div class="card-help">One link for all your caregivers. It opens the schedule — who's on every shift — starting on the current two weeks, and it <b>updates by itself</b> whenever you make a change, so you never need to resend it.<br><br>
+      They can only look: nothing on it can be changed, and it never shows pay rates, hours, notes, the care log or anyone's time away.</div>
+    <button class="copy-btn" onclick="copyViewLink()">🔗&nbsp; Copy the caregiver link</button>
+    <div class="copy-confirm" id="viewLinkConfirm"></div>
+    ${state.viewLink ? `
+    <a class="btn btn-outline btn-block" style="display:block;text-align:center;text-decoration:none;margin-top:4px;" href="${esc(buildViewLink())}" target="_blank" rel="noopener">👁&nbsp; See what caregivers see</a>
+    <details class="sync-details" style="margin-top:14px;">
+      <summary>▸ Stop the old link from working</summary>
+      <div class="card-help" style="margin-top:8px;">If the link went to someone who shouldn't have it, make a new one. The old link stops working right away — send the new one to everyone who should still see the schedule.</div>
+      <button class="btn btn-outline btn-block" onclick="replaceViewLink()">Make a new link</button>
+    </details>` : ''}`;
+}
+
+function copyViewLink() {
+  if (!syncCfg()) return;
+  const isNew = !state.viewLink;
+  if (isNew) state.viewLink = { c: randCode(22) };
+  // Copy first, inside the tap — Safari drops clipboard writes made later
+  copyString(buildViewLink(), 'viewLinkConfirm',
+    '✓ Link copied — paste it into a text to your caregivers.');
+  if (isNew) { save(); renderViewLinkCard(); }
+  publishCaregiverView();
+}
+
+function replaceViewLink() {
+  const c = syncCfg();
+  if (!c || !state.viewLink) return;
+  if (!confirm("Make a new caregiver link?\n\nThe old link will stop working right away. You'll need to send the new one to everyone who should still see the schedule.")) return;
+  fetch(viewDocUrl(c.u, state.viewLink.c), { method:'DELETE', cache:'no-store' }).catch(() => {});
+  state.viewLink = { c: randCode(22) };
+  save();
+  renderViewLinkCard();
+  publishCaregiverView();
+  const conf = document.getElementById('viewLinkConfirm');
+  if (conf) conf.textContent = '✓ New link made — tap the green button to copy it.';
+}
+
+// ── The view-only page a caregiver sees ──
+
+let viewCfg = null, viewData = null, viewFocusKey = '', viewWho = '', viewEs = null;
+
+function tryRenderScheduleView() {
+  if (typeof location === 'undefined') return false;
+  const m = (location.hash || '').match(/^#schedule=(.+)$/);
+  if (!m) return false;
+  let cfg = null;
+  try {
+    const o = JSON.parse(b64urlDecode(m[1]));
+    if (o && typeof o.u === 'string' && typeof o.v === 'string') cfg = o;
+  } catch(_) {}
+  renderScheduleView(cfg);
+  return true;
+}
+
+function viewFail(msg) {
+  viewData = null;
+  document.getElementById('mainEl').innerHTML = `
+    <div class="card">
+      <div class="card-title">⚠ Can't show the schedule</div>
+      <div class="card-help">${esc(msg)}</div>
+    </div>`;
+}
+
+async function renderScheduleView(cfg) {
+  const tb = document.getElementById('tabbar');
+  if (tb && tb.style) tb.style.display = 'none';
+  const hp = document.getElementById('headerPeriod');
+  if (hp) hp.textContent = 'Schedule';
+  if (!cfg) return viewFail("This link doesn't look right — ask the family for a fresh one.");
+  viewCfg = cfg;
+  viewFocusKey = toDateKey(new Date());
+  try { viewWho = localStorage.getItem(VIEW_WHO_KEY) || ''; } catch(_) {}
+  document.getElementById('mainEl').innerHTML = '<div class="card care-empty">Loading the schedule…</div>';
+  await loadViewData(true);
+
+  // Live updates while open; a fresh look whenever the page comes back
+  if (typeof EventSource !== 'undefined') {
+    try {
+      viewEs = new EventSource(viewDocUrl(cfg.u, cfg.v));
+      viewEs.addEventListener('put',   () => loadViewData(false));
+      viewEs.addEventListener('patch', () => loadViewData(false));
+    } catch(_) {}
+  }
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') loadViewData(false);
+    });
+  }
+}
+
+let viewLoading = false;
+async function loadViewData(first) {
+  if (viewLoading) return;
+  viewLoading = true;
+  try {
+    let doc;
+    try {
+      const resp = await fetch(viewDocUrl(viewCfg.u, viewCfg.v), { cache:'no-store' });
+      if (!resp.ok) throw new Error();
+      doc = await resp.json();
+    } catch(_) {
+      // Keep showing what's already on screen; only a first load fails loudly
+      if (first || !viewData) viewFail("Couldn't reach the schedule — check your internet, then open the link again.");
+      return;
+    }
+    if (!doc || typeof doc.state !== 'string')
+      return viewFail("This link isn't in use any more — ask the family for the current one.");
+    let data = null;
+    try { data = JSON.parse(await decodeStateStr(doc.state)); } catch(_) {}
+    if (!data || data.v !== 1 || !Array.isArray(data.d))
+      return viewFail("This phone couldn't read the schedule — ask the family for a fresh link.");
+    data.at = doc.updatedAt || 0;
+    viewData = data;
+    renderViewSchedule();
+  } finally {
+    viewLoading = false;
+  }
+}
+
+function viewGo(dir) {
+  if (!viewData || !viewData.d.length) return;
+  const count = Math.ceil(viewData.d.length / 14);
+  const i = Math.min(count - 1, Math.max(0, viewPeriodIdx() + dir));
+  viewFocusKey = viewData.d[i * 14][0];
+  renderViewSchedule();
+  if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, 0);
+}
+
+function viewGoToday() {
+  viewFocusKey = toDateKey(new Date());
+  renderViewSchedule();
+}
+
+function setViewWho(v) {
+  viewWho = v;
+  try { localStorage.setItem(VIEW_WHO_KEY, v); } catch(_) {}
+  renderViewSchedule();
+}
+
+// The period holding viewFocusKey (today, until they tap ‹ ›),
+// clamped to the periods the link carries.
+function viewPeriodIdx(key) {
+  const count = Math.ceil(viewData.d.length / 14);
+  const i = Math.floor(daysBetweenKeys(viewData.d[0][0], key || viewFocusKey) / 14);
+  return Math.min(count - 1, Math.max(0, i));
+}
+
+function renderViewSchedule() {
+  const data   = viewData;
+  const mainEl = document.getElementById('mainEl');
+  const hp     = document.getElementById('headerPeriod');
+  if (!data.d.length) {
+    if (hp) hp.textContent = 'Schedule';
+    mainEl.innerHTML = `<div class="card"><div class="card-help">No shifts are posted yet — check back soon.</div></div>`;
+    return;
+  }
+
+  const today = toDateKey(new Date());
+  const count = Math.ceil(data.d.length / 14);
+  const idx   = viewPeriodIdx();
+  const days  = data.d.slice(idx * 14, idx * 14 + 14);
+  const fmt   = (k, o) => new Date(k + 'T12:00:00').toLocaleDateString('en-US', o);
+  const lastKey = days[days.length - 1][0];
+  const label = `${fmt(days[0][0], { month:'short', day:'numeric' })} – ${fmt(lastKey, { month:'short', day:'numeric' })}, ${fmt(lastKey, { year:'numeric' })}`;
+  if (hp) hp.textContent = label;
+  const canGoToday = viewPeriodIdx(today) !== idx;
+
+  const names = [...new Set(data.d.flatMap(x => x[1].map(s => s[3]).filter(Boolean)))].sort();
+  if (viewWho && !names.includes(viewWho)) names.push(viewWho);
+  const opts = ['', ...names].map(n =>
+    `<option value="${esc(n)}" ${n === viewWho ? 'selected' : ''}>${n ? 'Just ' + esc(n) : 'Everyone'}</option>`).join('');
+
+  const cards = days.map(([dateKey, shifts]) => {
+    const show = viewWho ? shifts.filter(s => s[3] === viewWho) : shifts;
+    if (viewWho && !show.length) return '';
+    const rows = show.map(([icon, lbl, time, who]) => `
+      <div class="shift-row view-row ${who ? 'shift-covered' : 'shift-needed'}">
+        <div class="shift-top">
+          <span class="shift-icon">${esc(icon)}</span>
+          <span class="shift-time">${esc(time)}</span>
+          <span class="shift-label">${esc(lbl)}</span>
+        </div>
+        ${who ? `<div class="view-who">👤 ${esc(who)}</div>` : '<div class="view-open">Open — not filled yet</div>'}
+      </div>`).join('');
+    return `
+      <div class="card day-card ${dateKey === today ? 'view-today' : ''}">
+        <div class="day-header">
+          <div class="day-name">${fmt(dateKey, { weekday:'long', month:'long', day:'numeric' })}</div>
+          ${dateKey === today ? '<div class="badge badge-green">Today</div>' : ''}
+        </div>
+        ${rows || '<div class="card-help" style="margin:0;">No shifts this day.</div>'}
+      </div>`;
+  }).join('');
+
+  const updated = data.at
+    ? new Date(data.at).toLocaleString('en-US', { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })
+    : '';
+
+  mainEl.innerHTML = `
+    <div class="card period-nav">
+      <button class="nav-arrow" onclick="viewGo(-1)" aria-label="Previous two weeks" ${idx === 0 ? 'disabled' : ''}>‹</button>
+      <div class="period-center">
+        <div class="period-label">${label}</div>
+        <div class="period-sub">2-week schedule &nbsp;·&nbsp; tap ‹ › to change weeks</div>
+      </div>
+      <button class="nav-arrow" onclick="viewGo(1)" aria-label="Next two weeks" ${idx >= count - 1 ? 'disabled' : ''}>›</button>
+    </div>
+    ${!canGoToday ? '' : `<div class="jump-row" style="margin-bottom:12px;"><button class="btn btn-sm btn-outline" onclick="viewGoToday()">Back to this week</button></div>`}
+    <div class="card">
+      <label for="viewWhoPick" class="card-title" style="display:block;">Whose shifts?</label>
+      <select id="viewWhoPick" class="msg-select" onchange="setViewWho(this.value)">${opts}</select>
+    </div>
+    ${cards || `<div class="card care-empty">${esc(viewWho)} has no shifts in these two weeks.</div>`}
+    <div class="card view-foot">
+      👁 View only — this page updates by itself.
+      ${updated ? `<br>Last changed ${esc(updated)}.` : ''}
+    </div>`;
+}
+
 // ── Checklist editor (Set-Up tab) ──
 
 function renderCareFieldsEditor() {
@@ -2651,7 +2916,7 @@ function renderAddToHomeCard() {
     return;
   }
   const url = homeScreenUrl();
-  const onSpecialLink = /^#(backup|hours|caregiver)=/.test(location.hash || '');
+  const onSpecialLink = /^#(backup|hours|care|schedule)=/.test(location.hash || '');
   const warning = onSpecialLink
     ? `<div class="card-help" style="color:var(--red-fg);font-weight:700;">⚠ The link you opened just now carries a one-time code, so it's the wrong one to save. If you already added a Home Screen icon from a link like this, remove that icon and add it again using the plain link below — that's why it's been asking about a transfer every time it opens.</div>`
     : '';
@@ -3290,7 +3555,10 @@ async function syncNow() {
     if (syncMeta.dirty && !adoptDeferred) {
       await pushStateDoc(doc && doc.rev ? doc.rev : syncMeta.rev);
     }
-    if (!syncMeta.dirty && !adoptDeferred) setSyncStatus('✓ Synced — up to date on every device');
+    if (!syncMeta.dirty && !adoptDeferred) {
+      setSyncStatus('✓ Synced — up to date on every device');
+      publishCaregiverView();
+    }
   } catch(_) {
     setSyncStatus(typeof navigator !== 'undefined' && navigator.onLine === false
       ? 'Offline — changes are saved here and will sync when internet is back'
@@ -3488,6 +3756,7 @@ function setSyncUiMode(mode) {
 }
 
 function renderSyncCard() {
+  renderViewLinkCard();   // it depends on whether sync is on
   const el = document.getElementById('syncCard');
   if (!el) return;
   const note = document.getElementById('transferSyncNote');
@@ -3674,7 +3943,7 @@ function esc(s) {
 // force a reload to run the matching view.
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('hashchange', () => {
-    if (/^#(hours|backup|care)=/.test(location.hash || '')) location.reload();
+    if (/^#(hours|backup|care|schedule)=/.test(location.hash || '')) location.reload();
   });
 }
 
@@ -3682,7 +3951,6 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 // whenever automatic sync brings in a fresh copy from another device.
 function renderAll() {
   updateHeader();
-  updatePlanUI();
   renderCaregivers();
   renderLoaEditor();
   renderRates();
@@ -3707,8 +3975,9 @@ function renderAll() {
 }
 
 // A "#backup=…" link renders the transfer flow, "#hours=…" the read-only
-// shared page, "#care=…" a caregiver's entry page. Otherwise the app boots.
-if (!tryRenderBackupImport() && !tryRenderSharedView() && !tryRenderCaregiverView()) {
+// shared page, "#care=…" a caregiver's entry page, "#schedule=…" the
+// caregivers' view-only schedule. Otherwise the app boots.
+if (!tryRenderBackupImport() && !tryRenderSharedView() && !tryRenderCaregiverView() && !tryRenderScheduleView()) {
   refreshDays();
   selectedDayIdx = defaultSelectedDay();
   renderAll();
