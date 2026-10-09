@@ -1639,6 +1639,7 @@ function onSignoffInput(value) {
   state.signoff = value.trim();
   renderText();
   renderPersonText();
+  renderViewLinkCard();
 }
 
 function onNotesInput(value) {
@@ -2377,8 +2378,9 @@ async function cgSend() {
 // Cloud document at  <db>/care/<viewCode>.json :
 //   { rev, updatedAt, state }   state = 'js.' + b64url(payload JSON)
 // payload = { v:1, d: [[dateKey, [[icon,label,time,who]…]]…] }
-// d is today's 2-week period (on the schedule's own grid) plus the next
-// one, so the page rolls over by itself even if nobody opens the app.
+// d is today's 2-week period (on the schedule's own grid) and the two
+// after it. The page shows two of them; the third lets it roll over by
+// itself even if nobody opens the app.
 // Uncompressed on purpose: older phones can't gunzip.
 // ═══════════════════════════════════════════════════════════════════
 
@@ -2403,7 +2405,7 @@ function buildViewPayload(todayKey) {
   const today = todayKey || toDateKey(new Date());
   const start = addDaysToKey(state.startDate, Math.floor(daysBetweenKeys(state.startDate, today) / 14) * 14);
   const days  = [];
-  for (let i = 0; i < 28; i++) {
+  for (let i = 0; i < 42; i++) {
     const d = addDaysToKey(start, i);
     days.push([d, careShiftsFor(makeDay(d)).map(s => [s.icon || '', s.label, s.time || '', getAssigned(d, s.id)])]);
   }
@@ -2441,6 +2443,21 @@ async function publishCaregiverView() {
   }
 }
 
+// The text that goes out with the link, so caregivers know what it is.
+function buildViewLinkMessage(link) {
+  const lines = [
+    "Here's a link to Carolyn's care schedule:",
+    '',
+    link,
+    '',
+    "It shows who's on every shift for this two weeks and the next two. It updates by itself whenever the schedule changes, so save it and check it anytime — no need to wait for a new text. Choose your name under \"Whose shifts?\" to see just yours.",
+    '',
+    "It's view only, so please reach out to me if you need to swap or change a shift.",
+  ];
+  if (state.signoff) lines.push('', 'Thanks –', state.signoff);
+  return lines.join('\n');
+}
+
 function renderViewLinkCard() {
   const el = document.getElementById('viewLinkCard');
   if (!el) return;
@@ -2452,9 +2469,10 @@ function renderViewLinkCard() {
   }
   el.innerHTML = `
     <div class="card-title">🔗 Schedule link for caregivers</div>
-    <div class="card-help">One link for all your caregivers. It shows the current two weeks — who's on every shift — and it <b>updates by itself</b> whenever you make a change, so you never need to resend it.<br><br>
+    <div class="card-help">One link for all your caregivers. It shows this two weeks and the next two — who's on every shift — and it <b>updates by itself</b> whenever you make a change, so you never need to resend it.<br><br>
       They can only look: nothing on it can be changed, and it never shows pay rates, hours, notes, the care log or anyone's time away.</div>
-    <button class="copy-btn" onclick="copyViewLink()">🔗&nbsp; Copy the caregiver link</button>
+    <div class="text-output">${esc(buildViewLinkMessage(buildViewLink() || '(the link goes here)'))}</div>
+    <button class="copy-btn" onclick="copyViewLink()">🔗&nbsp; Copy the link with this message</button>
     <div class="copy-confirm" id="viewLinkConfirm"></div>
     ${state.viewLink ? `
     <a class="btn btn-outline btn-block" style="display:block;text-align:center;text-decoration:none;margin-top:4px;" href="${esc(buildViewLink())}" target="_blank" rel="noopener">👁&nbsp; See what caregivers see</a>
@@ -2470,8 +2488,8 @@ function copyViewLink() {
   const isNew = !state.viewLink;
   if (isNew) state.viewLink = { c: randCode(22) };
   // Copy first, inside the tap — Safari drops clipboard writes made later
-  copyString(buildViewLink(), 'viewLinkConfirm',
-    '✓ Link copied — paste it into a text to your caregivers.');
+  copyString(buildViewLinkMessage(buildViewLink()), 'viewLinkConfirm',
+    '✓ Copied! Now paste it into a text to your caregivers.');
   if (isNew) { save(); renderViewLinkCard(); }
   publishCaregiverView();
 }
@@ -2596,18 +2614,19 @@ function renderViewSchedule() {
 
   const today = toDateKey(new Date());
   const idx   = viewPeriodIdx();
-  const days  = data.d.slice(idx * 14, idx * 14 + 14);
   const fmt   = (k, o) => new Date(k + 'T12:00:00').toLocaleDateString('en-US', o);
-  const lastKey = days[days.length - 1][0];
-  const label = `${fmt(days[0][0], { month:'short', day:'numeric' })} – ${fmt(lastKey, { month:'short', day:'numeric' })}, ${fmt(lastKey, { year:'numeric' })}`;
-  if (hp) hp.textContent = label;
+  const range = (a, b) => `${fmt(a, { month:'short', day:'numeric' })} – ${fmt(b, { month:'short', day:'numeric' })}, ${fmt(b, { year:'numeric' })}`;
+  // This period and the next — fewer only if the copy is stale
+  const periods = [0, 1].map(n => data.d.slice((idx + n) * 14, (idx + n) * 14 + 14)).filter(p => p.length);
+  const allDays = periods.flat();
+  if (hp) hp.textContent = range(allDays[0][0], allDays[allDays.length - 1][0]);
 
-  const names = [...new Set(data.d.flatMap(x => x[1].map(s => s[3]).filter(Boolean)))].sort();
+  const names = [...new Set(allDays.flatMap(x => x[1].map(s => s[3]).filter(Boolean)))].sort();
   if (viewWho && !names.includes(viewWho)) names.push(viewWho);
   const opts = ['', ...names].map(n =>
     `<option value="${esc(n)}" ${n === viewWho ? 'selected' : ''}>${n ? 'Just ' + esc(n) : 'Everyone'}</option>`).join('');
 
-  const cards = days.map(([dateKey, shifts]) => {
+  const dayCard = ([dateKey, shifts]) => {
     const show = viewWho ? shifts.filter(s => s[3] === viewWho) : shifts;
     if (viewWho && !show.length) return '';
     const rows = show.map(([icon, lbl, time, who]) => `
@@ -2627,6 +2646,18 @@ function renderViewSchedule() {
         </div>
         ${rows || '<div class="card-help" style="margin:0;">No shifts this day.</div>'}
       </div>`;
+  };
+
+  const sections = periods.map((days, n) => {
+    const cards = days.map(dayCard).join('');
+    return `
+    <div class="card period-nav">
+      <div class="period-center">
+        <div class="period-label">${n === 0 ? 'This two weeks' : 'Next two weeks'}</div>
+        <div class="period-sub">${range(days[0][0], days[days.length - 1][0])}</div>
+      </div>
+    </div>
+    ${cards || `<div class="card care-empty">${esc(viewWho)} has no shifts in these two weeks.</div>`}`;
   }).join('');
 
   const updated = data.at
@@ -2634,17 +2665,11 @@ function renderViewSchedule() {
     : '';
 
   mainEl.innerHTML = `
-    <div class="card period-nav">
-      <div class="period-center">
-        <div class="period-label">${label}</div>
-        <div class="period-sub">Current 2-week schedule</div>
-      </div>
-    </div>
     <div class="card">
       <label for="viewWhoPick" class="card-title" style="display:block;">Whose shifts?</label>
       <select id="viewWhoPick" class="msg-select" onchange="setViewWho(this.value)">${opts}</select>
     </div>
-    ${cards || `<div class="card care-empty">${esc(viewWho)} has no shifts in these two weeks.</div>`}
+    ${sections}
     <div class="card view-foot">
       👁 View only — this page updates by itself.
       ${updated ? `<br>Last changed ${esc(updated)}.` : ''}
