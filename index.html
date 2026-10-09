@@ -175,15 +175,14 @@
     .tpl-days-label{font-size:.78rem;font-weight:700;color:var(--muted);margin-right:2px;}
     .day-chip{width:38px;height:34px;border-radius:9px;border:1.5px solid var(--border);background:white;color:var(--muted);font-size:.72rem;font-weight:800;cursor:pointer;padding:0;}
     .day-chip.on{background:#dbeafe;border-color:var(--blue);color:var(--blue-dark);}
-    .tpl-day-details{margin:2px 0 0 4px;}
-    .tpl-day-details summary{display:inline-flex;font-size:.82rem;font-weight:700;color:var(--muted);cursor:pointer;list-style:none;user-select:none;padding:4px 0;}
-    .tpl-day-details summary::-webkit-details-marker{display:none;}
-    .tpl-day-details[open] summary,.tpl-day-details summary:hover{color:var(--blue-dark);}
-    .tpl-day-grid{display:grid;grid-template-columns:auto 1fr;gap:7px 10px;align-items:center;margin-top:7px;padding:11px 13px;background:var(--gray-bg);border-radius:11px;}
-    .tpl-day-grid label{font-size:.85rem;font-weight:700;color:var(--muted);}
-    .tpl-day-grid input{border:1.5px solid var(--border);border-radius:9px;padding:8px 10px;background:white;}
-    .tpl-day-grid input.has-override{border-color:var(--blue);background:#eff6ff;font-weight:700;}
-    .tpl-day-grid-hint{grid-column:1/-1;font-size:.75rem;color:var(--muted);}
+    .tpl-day-note{font-size:.78rem;font-weight:700;color:var(--blue-dark);margin:2px 0 0 4px;}
+    .day-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:#dbe3ec;border-radius:12px;padding:4px;margin-bottom:14px;}
+    .day-tabs .view-btn{min-height:44px;padding:9px 4px;}
+    .day-time-row{display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap;}
+    .day-time-label{font-weight:800;min-width:96px;}
+    .tpl-time-input.has-override{border-color:var(--blue);background:#eff6ff;font-weight:700;}
+    .day-time-note{font-size:.78rem;color:var(--muted);margin:4px 0 0;}
+    .day-time-note.changed{color:var(--blue-dark);font-weight:700;}
 
     .pattern-row{padding:13px 0;border-bottom:1px solid var(--gray-bg);}
     .pattern-row:last-of-type{border-bottom:none;}
@@ -462,7 +461,7 @@
 
     <div class="card">
       <div class="card-title">🕐 Shift times</div>
-      <div class="card-help">Change a time here and it changes everywhere. The day buttons control which days of the week a shift appears — weekends use one 12-hour Day shift instead of the weekday ones.
+      <div class="card-help">Pick <b>Every day</b> to change a shift's normal time or which days it happens. Pick a single day to change times just for that day — it repeats every week. (Weekends use one 12-hour Day shift instead of the weekday ones.)
       </div>
       <div id="shiftTemplateEditor"></div>
     </div>
@@ -1058,25 +1057,30 @@ function updateHeader() {
 // Shift template editor (Set-Up tab, edits the active plan)
 // ═══════════════════════════════════════════════════════════════════
 
+// "Different on Wed, Sat" — '' when every day uses the normal time
 function dayTimesSummary(s) {
   const days = DOW_ORDER.filter(dow => shiftAppliesTo(s, dow) && (s.dayTimes || {})[dow]);
-  if (!days.length) return 'Same time every day — tap to change one day ▾';
-  return 'Different time on: ' + days.map(d => DAY_NAMES[d].slice(0,3)).join(', ') + ' ▾';
+  return days.length ? '🗓 Different time on ' + days.map(d => DAY_NAMES[d].slice(0,3)).join(', ') + ' — tap that day above to see it' : '';
 }
 
 const DOW_CHIP = { 0:'Su', 1:'Mo', 2:'Tu', 3:'We', 4:'Th', 5:'Fr', 6:'Sa' };
 
-function renderShiftTemplateEditor() {
-  const rows = plan().shiftDefs.map((s, idx) => {
-    const dayInputs = DOW_ORDER.filter(dow => shiftAppliesTo(s, dow)).map(dow => {
-      const ovVal = (s.dayTimes || {})[dow] || '';
-      return `
-        <label>${DAY_NAMES[dow].slice(0,3)}</label>
-        <input value="${esc(ovVal)}" placeholder="${esc(s.time)}"
-               class="${ovVal ? 'has-override' : ''}"
-               onchange="updateShiftDayTime(${idx},${dow},this)" />`;
-    }).join('');
+// Shift times day tab: -1 = Every day, else a day of week. Not saved.
+let shiftTimesDow = -1;
 
+function setShiftTimesDay(dow) {
+  shiftTimesDow = dow;
+  renderShiftTemplateEditor();
+}
+
+function renderShiftTemplateEditor() {
+  const tabs = `<div class="day-tabs">${[-1, ...DOW_ORDER].map(d => `
+    <button class="view-btn ${d === shiftTimesDow ? 'active' : ''}" onclick="setShiftTimesDay(${d})">${d < 0 ? 'Every day' : DAY_NAMES[d].slice(0,3)}</button>`).join('')}</div>`;
+  if (shiftTimesDow >= 0) {
+    document.getElementById('shiftTemplateEditor').innerHTML = tabs + renderDayTimesEditor(shiftTimesDow);
+    return;
+  }
+  const rows = plan().shiftDefs.map((s, idx) => {
     const dayChips = DOW_ORDER.map(dow => `
       <button class="day-chip ${shiftAppliesTo(s, dow) ? 'on' : ''}"
               onclick="toggleShiftDay(${idx},${dow},this)"
@@ -1094,17 +1098,12 @@ function renderShiftTemplateEditor() {
         <span class="tpl-days-label">On:</span>
         ${dayChips}
       </div>
-      <details class="tpl-day-details">
-        <summary>🗓 <span id="tplDaySum-${idx}">&nbsp;${dayTimesSummary(s)}</span></summary>
-        <div class="tpl-day-grid">
-          ${dayInputs}
-          <span class="tpl-day-grid-hint">Leave a day blank to use the normal time.</span>
-        </div>
-      </details>
+      <div class="tpl-day-note" id="tplDaySum-${idx}">${esc(dayTimesSummary(s))}</div>
     </div>`;
   }).join('');
 
   document.getElementById('shiftTemplateEditor').innerHTML = `
+    ${tabs}
     ${rows}
     <div class="add-tpl-row">
       <input id="newShiftIcon"  value="🕐" style="width:44px;text-align:center;" />
@@ -1135,23 +1134,43 @@ function toggleShiftDay(idx, dow, btn) {
   else s.days = days.sort();
   if (btn && btn.classList) btn.classList.toggle('on', shiftAppliesTo(s, dow));
   const sum = document.getElementById(`tplDaySum-${idx}`);
-  if (sum) sum.innerHTML = '&nbsp;' + esc(dayTimesSummary(s));
+  if (sum) sum.textContent = dayTimesSummary(s);
   save();
   renderSchedule();
   renderText();
   renderPersonText();
 }
 
-function updateShiftDayTime(idx, dow, inputEl) {
+// One day of the week: each shift on that day with its time. A change
+// is stored in the shift's dayTimes, so it repeats every week.
+function renderDayTimesEditor(dow) {
+  const name = DAY_NAMES[dow];
+  const rows = plan().shiftDefs.map((s, idx) => ({ s, idx })).filter(x => shiftAppliesTo(x.s, dow)).map(({ s, idx }) => {
+    const ov = (s.dayTimes || {})[dow] || '';
+    return `
+      <div class="day-time-row">
+        <span class="shift-icon">${esc(s.icon)}</span>
+        <span class="day-time-label">${esc(s.label)}</span>
+        <input class="tpl-time-input ${ov ? 'has-override' : ''}" value="${esc(ov || s.time)}"
+               onchange="setShiftDayTime(${idx},${dow},this.value)" aria-label="${esc(s.label)} time on ${name}s" />
+        ${ov ? `<button class="btn btn-sm btn-outline" onclick="setShiftDayTime(${idx},${dow},'')">Reset</button>` : ''}
+      </div>
+      <div class="day-time-note ${ov ? 'changed' : ''}">${ov ? `Every ${name} only — normally ${esc(s.time)}` : 'Normal time'}</div>`;
+  }).join('');
+  return `
+    <div class="card-help" style="margin-bottom:0;">Times you change here repeat <b>every ${name}</b>. The other days keep their normal times.</div>
+    ${rows || `<div class="card-help">No shifts happen on ${name}s.</div>`}
+    <div class="card-help" style="margin:14px 0 0;">To change which shifts happen on ${name}s, tap <b>Every day</b> and use the day buttons. To change just one date, tap its time on the Schedule page.</div>`;
+}
+
+function setShiftDayTime(idx, dow, value) {
   const s = plan().shiftDefs[idx];
   if (!s.dayTimes) s.dayTimes = {};
-  const v = inputEl.value.trim();
-  if (v) s.dayTimes[dow] = v;
-  else   delete s.dayTimes[dow];
-  if (inputEl.classList) inputEl.classList.toggle('has-override', !!v);
-  const sum = document.getElementById(`tplDaySum-${idx}`);
-  if (sum) sum.innerHTML = '&nbsp;' + esc(dayTimesSummary(s));
+  const v = String(value).trim();
+  if (v && v !== s.time) s.dayTimes[dow] = v;
+  else delete s.dayTimes[dow];   // blank or the normal time = no special time
   save();
+  renderShiftTemplateEditor();
   renderSchedule();
   renderText();
   renderPersonText();
