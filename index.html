@@ -184,13 +184,6 @@
     .day-time-note{font-size:.78rem;color:var(--muted);margin:4px 0 0;}
     .day-time-note.changed{color:var(--blue-dark);font-weight:700;}
 
-    .pattern-row{padding:13px 0;border-bottom:1px solid var(--gray-bg);}
-    .pattern-row:last-of-type{border-bottom:none;}
-    .pattern-day{font-size:1rem;font-weight:800;margin-bottom:7px;}
-    .pattern-controls{display:flex;flex-direction:column;gap:8px;}
-    .pattern-fill{display:flex;align-items:center;gap:9px;font-size:.9rem;font-weight:600;flex-wrap:wrap;}
-    .pattern-fill select{flex:1;min-width:150px;border:1.5px solid var(--border);border-radius:10px;padding:9px 11px;background:white;}
-    .pattern-note{font-size:.8rem;color:var(--muted);font-style:italic;}
 
     /* ── Away / vacation (LOA) ── */
     .loa-row{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--gray-bg);}
@@ -337,6 +330,8 @@
 
     <div id="schedule"></div>
 
+    <div class="card" id="standardCard"></div>
+
     <footer>Everything saves by itself — nothing to click.</footer>
   </section>
 
@@ -467,17 +462,10 @@
     </div>
 
     <div class="card">
-      <div class="card-title">📆 A normal week</div>
-      <div class="card-help">How a typical week works. New schedules start out filled in from this — you can always change any single day afterward on the Schedule page.
-      </div>
-      <div id="patternEditor"></div>
-    </div>
-
-    <div class="card">
       <div class="card-title">↺ Start this schedule over</div>
-      <div class="card-help">Clears every shift in the current two weeks and fills them back in from "A normal week" above. Use this if things got messy.
+      <div class="card-help">Clears every shift in the current two weeks and fills them back in from your standard two weeks (Schedule page). Use this if things got messy.
       </div>
-      <button class="btn btn-outline btn-block" onclick="confirmResetToPattern()">Re-fill schedule from the normal week</button>
+      <button class="btn btn-outline btn-block" onclick="confirmResetToPattern()">Re-fill from my standard two weeks</button>
     </div>
 
     <div class="card" id="addToHomeCard">
@@ -587,26 +575,6 @@ const CARE_TYPE_LABELS = {
   yesno:'Yes / No', scale:'1–10', number:'Number', text:'Short answer', choice:'Choices',
 };
 
-// Historical weekday shift defaults (from recurring calendar events May–June 2026).
-// Keyed by shift id, so they only ever apply to plans that contain those ids.
-const HISTORICAL_WEEKDAY_SHIFTS = {
-  1:{ evening:'Renee' },
-  2:{ evening:'Renee' },
-  3:{ morning:'Kim', evening:'Renee', overnight:'Janice' },
-  4:{ evening:'Renee' },
-  5:{ evening:'Renee' },
-};
-
-// Carol bi-weekly overnight Thu/Fri — anchor: Thu May 28, 2026
-const CAROL_OVERNIGHT_REF = new Date('2026-05-28T12:00:00');
-function isCarolOvernightDate(dateKey) {
-  const d   = new Date(dateKey + 'T12:00:00');
-  const dow = d.getDay();
-  if (dow !== 4 && dow !== 5) return false;
-  const diff = Math.round((d - CAROL_OVERNIGHT_REF) / 86400000);
-  return diff >= 0 && diff % 14 < 2;
-}
-
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const DOW_ORDER = [1,2,3,4,5,6,0]; // Mon-first display order
 const STORAGE_KEY = 'carolyn-care-v4';
@@ -699,6 +667,13 @@ function normalizeState(s) {
         if (!pl.pattern)      pl.pattern      = deepClone(pk === 'a' ? DEFAULT_PATTERN : BOB_PATTERN);
         if (!pl.assignments)  pl.assignments  = {};
         if (!pl.dayOverrides) pl.dayOverrides = {};
+        if (pl.standard && !(typeof pl.standard.start === 'string' && pl.standard.slots && typeof pl.standard.slots === 'object')) delete pl.standard;
+        // Days filled before fill-once tracking existed count as filled,
+        // so revisiting them never re-adds a name Mom took off.
+        if (!pl.autoFilled) {
+          pl.autoFilled = {};
+          for (const k in pl.assignments) pl.autoFilled[k.split('|')[0]] = 1;
+        }
         pl.shiftDefs.forEach(d => { if (!d.dayTimes) d.dayTimes = {}; });
         // Fix a briefly-shipped reversed version of the evening times.
         // Mon/Tue/Thu/Fri evenings run 5:00p–8:30p; Wednesday ends at 7:30p.
@@ -837,36 +812,38 @@ function addDaysToKey(dateKey, n) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Preset application (soft: skip if slot already filled)
-// Priority: 1) historical weekday  2) Carol bi-weekly  3) day-level preset
-// All keyed by shift ids, so they no-op on plans without those shifts.
+// Standard two weeks: new days start as a copy of the two weeks Mom
+// saved as her standard, matched by position in a 14-day cycle (so the
+// weekday and week 1 / week 2 line up). Each day is filled only once
+// (pl.autoFilled) — after that, whatever she changed, including
+// clearing a shift, stays put when she comes back to it.
 // ═══════════════════════════════════════════════════════════════════
 
-function applyPresets(pl, days, loa) {
-  const hasOvernight = pl.shiftDefs.some(s => s.id === 'overnight');
+function cycleOffset(fromKey, dateKey) {
+  return ((daysBetweenKeys(fromKey, dateKey) % 14) + 14) % 14;
+}
+
+function applyPresets(pl, days, loa, force) {
+  const std = pl.standard;
+  if (!std) return;   // nothing saved yet — leave days unmarked for later
+  if (!pl.autoFilled) pl.autoFilled = {};
+  const today = toDateKey(new Date());
   days.forEach(day => {
-    const hist = HISTORICAL_WEEKDAY_SHIFTS[day.dow];
-    if (hist) {
-      pl.shiftDefs.forEach(s => {
-        if (!shiftAppliesTo(s, day.dow)) return;
-        if (s.id === 'afternoon' && !day.afternoonNeeded) return;
-        const k = aKey(day.dateKey, s.id);
-        if (!pl.assignments[k] && hist[s.id] && !isAwayIn(loa, hist[s.id], day.dateKey))
-          pl.assignments[k] = hist[s.id];
-      });
-    }
-    if (hasOvernight && isCarolOvernightDate(day.dateKey) && !isAwayIn(loa, 'Carol', day.dateKey)) {
-      const k = aKey(day.dateKey, 'overnight');
-      if (!pl.assignments[k]) pl.assignments[k] = 'Carol';
-    }
-    if (!day.preset || isAwayIn(loa, day.preset, day.dateKey)) return;
+    if (!force && (pl.autoFilled[day.dateKey] || day.dateKey < today)) return;
+    pl.autoFilled[day.dateKey] = 1;
+    const off    = cycleOffset(std.start, day.dateKey);
+    const hidden = new Set(((pl.dayOverrides[day.dateKey] || {}).hidden) || []);
     pl.shiftDefs.forEach(s => {
-      if (!shiftAppliesTo(s, day.dow)) return;
+      if (!shiftAppliesTo(s, day.dow) || hidden.has(s.id)) return;
       if (s.id === 'afternoon' && !day.afternoonNeeded) return;
-      const k = aKey(day.dateKey, s.id);
-      if (!pl.assignments[k]) pl.assignments[k] = day.preset;
+      const who = std.slots[`${off}|${s.id}`];
+      const k   = aKey(day.dateKey, s.id);
+      if (who && !pl.assignments[k] && !isAwayIn(loa, who, day.dateKey)) pl.assignments[k] = who;
     });
   });
+  // Forget fill marks for long-past days so the list stays small
+  const old = addDaysToKey(today, -60);
+  for (const k in pl.autoFilled) if (k < old) delete pl.autoFilled[k];
 }
 
 function applyPresetsForce(pl, days, loa) {
@@ -874,12 +851,49 @@ function applyPresetsForce(pl, days, loa) {
   for (const k in pl.assignments) {
     if (keys.has(k.split('|')[0])) delete pl.assignments[k];
   }
-  applyPresets(pl, days, loa);
+  applyPresets(pl, days, loa, true);
 }
 
+// The period on screen and the one after it (the caregiver link shows both)
 function applyPresetsToPlan(st, pl) {
-  const days = generateDays(st.startDate, pl.pattern);
+  const days = generateDays(st.startDate, pl.pattern).concat(generateDays(addDaysToKey(st.startDate, 14), pl.pattern));
   applyPresets(pl, days, st.loa);
+}
+
+// Save the two weeks on screen as the standard
+function confirmSaveStandard() {
+  const pl = plan();
+  if (pl.standard && !confirm(`Make ${periodLabel()} your standard two weeks?\n\nNew two-week periods will start as a copy of it. Days already filled in won't change.`)) return;
+  const slots = {};
+  DAYS.forEach((day, i) => {
+    getShiftsForDay(day).forEach(s => {
+      if (s._isExtra || s._hidden || s._hiddenByPattern) return;
+      const who = getAssigned(day.dateKey, s.id);
+      if (who) slots[`${i}|${s.id}`] = who;
+    });
+  });
+  pl.standard = { start: state.startDate, savedAt: Date.now(), slots };
+  if (!pl.autoFilled) pl.autoFilled = {};
+  DAYS.forEach(d => { pl.autoFilled[d.dateKey] = 1; });   // these days ARE the standard
+  applyPresetsToPlan(state, pl);                            // fill the next two weeks from it
+  save();
+  renderSchedule();
+  renderText();
+  renderPersonText();
+  showToast('Saved as your standard ✓');
+}
+
+function renderStandardCard() {
+  const el = document.getElementById('standardCard');
+  if (!el) return;
+  const std = plan().standard;
+  const fmt = k => new Date(k + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' });
+  el.innerHTML = `
+    <div class="card-title">⭐ Standard two weeks</div>
+    <div class="card-help">${std
+      ? `New two-week periods start as a copy of your standard (saved from <b>${fmt(std.start)} – ${fmt(addDaysToKey(std.start, 13))}</b>). Change any day afterward as needed.`
+      : `Fill in these two weeks the way they normally go, then save them as your standard. Every new two-week period will start as a copy, and you change single days as needed.`}</div>
+    <button class="btn btn-outline btn-block" onclick="confirmSaveStandard()">⭐ Save these two weeks as my standard</button>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1204,53 +1218,15 @@ function addShiftDef() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Pattern editor (Set-Up tab, edits the active plan)
+// Re-fill the two weeks on screen from the standard (Set-Up tab)
 // ═══════════════════════════════════════════════════════════════════
 
-function renderPatternEditor() {
-  // The day-program toggle only makes sense for plans that have the
-  // regular 1–5p afternoon shift.
-  const hasAfternoon = plan().shiftDefs.some(s => s.id === 'afternoon');
-  const rows = DOW_ORDER.map(dow => {
-    const pat  = plan().pattern[dow];
-    const opts = ['', ...state.caregivers].map(c =>
-      `<option value="${esc(c)}" ${(pat.preset||'')=== c?'selected':''}>${c||'Nobody — I\'ll pick each shift myself'}</option>`
-    ).join('');
-    const afternoonRow = !hasAfternoon ? '' : `
-          <label class="switch-row">
-            <input type="checkbox" ${pat.afternoonNeeded?'checked':''} onchange="onPatternToggle(${dow},this.checked)" />
-            Needs an afternoon caregiver (1–5p)
-          </label>
-          ${pat.afternoonNeeded ? '' : '<div class="pattern-note">Carolyn is at her day program 1–5p — no afternoon shift shown.</div>'}`;
-    return `
-      <div class="pattern-row">
-        <div class="pattern-day">${DAY_NAMES[dow]}</div>
-        <div class="pattern-controls">
-          ${afternoonRow}
-          <div class="pattern-fill">
-            <span>Usually covered by:</span>
-            <select onchange="onPatternPreset(${dow},this.value)">${opts}</select>
-          </div>
-        </div>
-      </div>`;
-  }).join('');
-
-  document.getElementById('patternEditor').innerHTML = rows;
-}
-
-function onPatternToggle(dow, checked) {
-  plan().pattern[dow].afternoonNeeded = checked;
-  save();
-  renderPatternEditor();
-}
-
-function onPatternPreset(dow, value) {
-  plan().pattern[dow].preset = value || null;
-  save();
-}
-
 function confirmResetToPattern() {
-  if (!confirm(`Clear every shift in "${plan().name}" for these two weeks and re-fill it from "A normal week"?\n\nAnything you changed by hand will be lost. The other schedule is not affected.`)) return;
+  if (!plan().standard) {
+    alert("You haven't saved a standard two weeks yet.\n\nOn the Schedule page, fill in two weeks the way they normally go, then tap \"Save these two weeks as my standard\" at the bottom.");
+    return;
+  }
+  if (!confirm(`Clear every shift in "${plan().name}" for these two weeks and re-fill it from your standard two weeks?\n\nAnything you changed by hand will be lost. The other schedule is not affected.`)) return;
   refreshDays();
   applyPresetsForce(plan(), DAYS, state.loa);
   save();
@@ -1323,7 +1299,6 @@ function addCaregiver() {
     state.caregivers.push(name);
     save();
     renderCaregivers();
-    renderPatternEditor();
     renderLoaEditor();
     renderRates();
     renderSchedule();
@@ -1345,7 +1320,6 @@ function removeCaregiver(name) {
   }
   save();
   renderCaregivers();
-  renderPatternEditor();
   renderLoaEditor();
   renderRates();
   renderSchedule();
@@ -1389,6 +1363,7 @@ function selectDay(i) {
 
 function renderSchedule() {
   updateViewButtons();
+  renderStandardCard();
   if (state.scheduleView === 'calendar') {
     renderCalendar();
     updateSummary();
@@ -3963,7 +3938,6 @@ function renderAll() {
   renderLoaEditor();
   renderRates();
   renderShiftTemplateEditor();
-  renderPatternEditor();
   renderSchedule();
 
   const signoffEl = document.getElementById('signoffInput');
